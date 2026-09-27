@@ -115,3 +115,35 @@ Macierze wierszami (row-major). `intrinsicMatrix` odnosi się do `intrinsicMatri
 
 ## Poza zakresem
 Tylna kamera, wideo, edycja/efekt bokeh w aplikacji, galeria zdjęć, synchronizacja w chmurze.
+
+---
+
+## Rozszerzenie 2026-09-27: uśrednianie wielu klatek głębi (z ręki)
+
+### Cel
+Zmniejszyć szum surowej głębi przez uśrednienie klatek ze strumienia TrueDepth, przy telefonie trzymanym w ręce (bez statywu).
+
+### Zachowanie
+- `AVCaptureDepthDataOutput` przechodzi na **surową** głębię (`isFilteringEnabled = false`); podgląd odległości dalej używa mediany (odporna na NaN).
+- Aplikacja trzyma w pamięci ostatnie ~1 s klatek (DepthFloat32, spakowane bez paddingu) oraz orientację telefonu z CoreMotion (`CMDeviceMotion.attitude`, 100 Hz).
+- Po naciśnięciu migawki bierze klatki z ostatnich **0,5 s** (≈15 klatek) — sprzed zdjęcia, więc nie wydłuża robienia zdjęcia.
+- Klatką odniesienia jest ostatnia klatka (najbliżej zdjęcia). Klatka jest używana, jeśli jej orientacja różni się od odniesienia o ≤ **0,35°** (≈1–2 mm / 2–3 px przy 35 cm). Brak danych ruchu → używane są wszystkie klatki (odnotowane w JSON).
+- Mniej niż **5** użytych klatek → ostrzeżenie „Trzymaj stabilniej”.
+- Wszystkie stałe w `CaptureConfig` / `FidmaaCore`.
+
+### Pliki (dodatkowe, w tym samym folderze)
+| Plik | Zawartość |
+|---|---|
+| `depth_stack.f32` | wszystkie klatki okna, N × H × W, float32 LE, kolejność jak w `frames.json` |
+| `depth_median.f32` | mediana per piksel z użytych klatek (NaN gdy brak) |
+| `depth_std.f32` | odchylenie standardowe per piksel (populacyjne; NaN gdy brak) |
+| `depth_count.u8` | liczba ważnych wartości per piksel (uint8) |
+| `frames.json` | per klatka: indeks, znacznik czasu, różnica orientacji [°], `used`, opóźnienie próbki ruchu; kalibracja kamery ze strumienia |
+
+`calibration.json` dostaje sekcję `stack` (null gdy brak klatek): okno, liczba klatek, użyte, próg, wymiary, dostępność ruchu, nazwy plików.
+
+### Orientacja kalibracji
+Na iPhone 17 `intrinsicMatrixReferenceDimensions` = 3024×4032 (pion), a mapa głębi i maski są poziome (640×480, 2016×1512). Najpierw zbieramy dane (kalibracja ze zdjęcia i ze strumienia), potem ustalamy transformację i dopisujemy do JSON macierz w układzie mapy głębi. Do tego czasu README ostrzega.
+
+### Poza zakresem (teraz)
+Rejestracja 3D klatek (ICP) na telefonie — robiona offline w Pythonie z `depth_stack.f32`, po ustaleniu orientacji kalibracji. Podmiana głębi w HEIC na medianę.
