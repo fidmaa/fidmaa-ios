@@ -41,7 +41,7 @@ enum CaptureConfig {
     static let distanceUpdateInterval: CFTimeInterval = 0.1
     /// Averaging choices offered in the UI: number of streamed frames before the shutter.
     static let averagingOptions = [1, 5, 10]
-    static let defaultAveragingFrames = 1
+    static let defaultAveragingFrames = 5
     /// Frames rotated more than this from the reference (last) frame are not averaged.
     static let stackRotationThresholdDegrees = 0.35
     /// Ring buffer size (~1.5 s at 30 fps).
