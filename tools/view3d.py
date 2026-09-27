@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["numpy"]
+# dependencies = ["numpy", "pillow"]
 # ///
 """Interactive 3D comparison of one Fidmaa Pic capture, as a local HTML page.
 
@@ -25,6 +25,7 @@ import zipfile
 from pathlib import Path
 
 import numpy as np
+from PIL import Image
 
 TOOLS = Path(__file__).resolve().parent
 SIGMA_SPACE_PX = 2.0     # bilateral: spatial Gaussian
@@ -83,7 +84,11 @@ def fuse(apple: np.ndarray, reference: np.ndarray) -> tuple[np.ndarray, dict]:
     return fused.astype(np.float32), stats
 
 
-def fuse_ai(ai: np.ndarray, measured: np.ndarray, measured_smooth: np.ndarray) -> tuple[np.ndarray, dict]:
+AI_MIN_CORRELATION = 0.5  # below this the AI shape doesn't match the measurement; its detail is not used
+
+
+def fuse_ai(ai: np.ndarray, measured: np.ndarray, measured_smooth: np.ndarray,
+            face: np.ndarray) -> tuple[np.ndarray, dict]:
     """Measured depth above AI_SPLIT_SIGMA_PX + AI detail below it, scaled by the AI's relief gain.
 
     Monocular depth gets the shape right but too shallow (on the first test face: 1.57× too flat at
@@ -94,19 +99,14 @@ def fuse_ai(ai: np.ndarray, measured: np.ndarray, measured_smooth: np.ndarray) -
         valid = np.isfinite(a) & (a > 0)
         return normalized_blur(np.where(valid, a, 0.0), valid, sigma)
 
-    # Face window around the nose tip (closest point near the image center), inside the head outline.
-    h, w = measured.shape
-    center = measured_smooth[h // 2 - 100:h // 2 + 100, w // 2 - 100:w // 2 + 100]
-    ty, tx = np.unravel_index(np.nanargmin(center), center.shape)
-    ty, tx = ty + h // 2 - 100, tx + w // 2 - 100
-    face = np.zeros_like(measured, dtype=bool)
-    face[max(0, ty - 70):ty + 80, max(0, tx - 75):tx + 85] = True
     lo, hi = AI_GAIN_BAND_PX
     band_ai = blur(ai, lo) - blur(ai, hi)
     band_measured = blur(measured_smooth, lo) - blur(measured_smooth, hi)
     m = face & np.isfinite(band_ai) & np.isfinite(band_measured)
     gain = float(np.sum(band_ai[m] * band_measured[m]) / np.sum(band_ai[m] ** 2))
     correlation = float(np.corrcoef(band_ai[m], band_measured[m])[0, 1])
+    if correlation < AI_MIN_CORRELATION:
+        gain = 0.0
     fused = blur(measured_smooth, AI_SPLIT_SIGMA_PX) + gain * (ai - blur(ai, AI_SPLIT_SIGMA_PX))
     fused = np.where(np.isfinite(ai) & (ai > 0), fused, np.nan).astype(np.float32)
     return fused, dict(gain=gain, correlation=correlation)
@@ -125,7 +125,11 @@ def align_disparity(ai: np.ndarray, reference: np.ndarray) -> tuple[np.ndarray, 
         residual = y - (a * x + b)
         mad = np.median(np.abs(residual[keep] - np.median(residual[keep])))
         keep = np.abs(residual) < 3 * 1.4826 * mad
-    aligned = np.where(np.isfinite(ai) & (ai > 0), 1 / (a / ai + b), np.nan).astype(np.float32)
+    # The fit is made on the subject; far from it (background) the line can reach zero or negative
+    # disparity, so anything it would place beyond 2×FAR is dropped instead of exploding.
+    denominator = a / ai + b
+    aligned = np.where(np.isfinite(ai) & (ai > 0) & (denominator > 1 / (2 * FAR)),
+                       1 / denominator, np.nan).astype(np.float32)
     before = (ai - reference)[mask]
     after = (aligned - reference)[mask]
     stats = dict(beforeMeanMm=float(np.mean(before) * 1000), beforeSdMm=float(np.std(before) * 1000),
@@ -134,12 +138,29 @@ def align_disparity(ai: np.ndarray, reference: np.ndarray) -> tuple[np.ndarray, 
     return aligned, stats
 
 
-def roughness_mm(a: np.ndarray, region) -> float:
-    y0, y1, x0, x1 = region
-    c = a[y0:y1, x0:x1]
-    n = (a[y0 - 1:y1 - 1, x0:x1] + a[y0 + 1:y1 + 1, x0:x1] + a[y0:y1, x0 - 1:x1 - 1] + a[y0:y1, x0 + 1:x1 + 1]) / 4
-    r = (c - n)[np.isfinite(c - n)]
-    return float(np.std(r) * 1000) if r.size else float("nan")
+def face_mask(folder: Path | None, shape: tuple[int, int]) -> np.ndarray:
+    """Face skin from the capture's skin.png (same sensor grid); a central window if there is none."""
+    h, w = shape
+    skin = folder / "skin.png" if folder else None
+    if skin and skin.exists():
+        mask = np.asarray(Image.open(skin).convert("L").resize((w, h), Image.BILINEAR)) > 128
+        if mask.sum() > 500:
+            return mask
+    mask = np.zeros(shape, dtype=bool)
+    mask[h // 2 - 50:h // 2 + 50, w // 2 - 50:w // 2 + 50] = True
+    return mask
+
+
+def robust_sd(values: np.ndarray) -> float:
+    values = values[np.isfinite(values)]
+    return float(1.4826 * np.median(np.abs(values - np.median(values)))) if values.size else float("nan")
+
+
+def roughness_mm(a: np.ndarray, mask: np.ndarray) -> float:
+    """Robust spread of the discrete Laplacian over the mask (edges and stray pixels don't dominate)."""
+    lap = np.full_like(a, np.nan)
+    lap[1:-1, 1:-1] = a[1:-1, 1:-1] - (a[:-2, 1:-1] + a[2:, 1:-1] + a[1:-1, :-2] + a[1:-1, 2:]) / 4
+    return robust_sd(lap[mask]) * 1000
 
 
 def texture(folder: Path, work: Path, photo: Path | None = None) -> str:
@@ -196,10 +217,11 @@ def build_from_heic(photo: Path, work: Path) -> dict:
     fx = info.get("fx", 0.7 * w / scale) * scale
     panels = [(f"HEIC — głębia iOS ({info['accuracy']})", depth, note),
               ("HEIC + filtr bilateralny", bilateral(depth), "")]
-    return assemble(panels, depth, fx, fx, w / 2, h / 2, None, texture(photo.parent, work, photo), photo.name)
+    return assemble(panels, depth, fx, fx, w / 2, h / 2, None, texture(photo.parent, work, photo), photo.name,
+                    face_mask(None, depth.shape))
 
 
-def assemble(panels, base, fx, fy, cx, cy, std, texture_url, title) -> dict:
+def assemble(panels, base, fx, fy, cx, cy, std, texture_url, title, face: np.ndarray) -> dict:
     h, w = base.shape
     near = np.isfinite(base) & (base > NEAR) & (base < FAR)
     ys, xs = np.nonzero(near)
@@ -212,12 +234,11 @@ def assemble(panels, base, fx, fy, cx, cy, std, texture_url, title) -> dict:
             c = np.where(np.isfinite(c) & (c > NEAR) & (c < FAR), c, np.nan).astype(np.float32)
         return base64.b64encode(c.tobytes()).decode()
 
-    region = (h // 2 - 50, h // 2 + 50, w // 2 - 50, w // 2 + 50)
     return dict(
         cw=int(x1 - x0), ch=int(y1 - y0), x0=int(x0), y0=int(y0), fullW=w, fullH=h, fx=fx, fy=fy, cx=cx, cy=cy,
-        panels=[dict(title=t, depth=crop(a), rough=roughness_mm(a, region), note=note) for t, a, note in panels],
+        panels=[dict(title=t, depth=crop(a), rough=roughness_mm(a, face), note=note) for t, a, note in panels],
         std=crop(std, keep_range=False) if std is not None else None,
-        stdMedianMm=float(np.nanmedian(std[region[0]:region[1], region[2]:region[3]]) * 1000) if std is not None else None,
+        stdMedianMm=float(np.nanmedian(std[face]) * 1000) if std is not None else None,
         texture=texture_url,
         title=title,
         filter=f"bilateralny: σ {SIGMA_SPACE_PX:g} px, σ głębi {SIGMA_RANGE_M * 1000:g} mm, promień {RADIUS_PX} px",
@@ -257,29 +278,32 @@ def build(folder: Path, work: Path, ai_depths: list[tuple[str, Path]] = (), comp
         sys.exit("AI panels need streamed frames in the capture (a reference to align to)")
     if compact and ai_depths:
         panels = [p for p in panels if "bilateral" in p[0]][-1:]  # best measured panel only
-    face = (slice(h // 2 - 50, h // 2 + 50), slice(w // 2 - 50, w // 2 + 50))
+    face = face_mask(folder, (h, w))
 
     def vs_measured(a):
         d = (a - reference)[face]
         d = d[np.isfinite(d)]
-        return f"środek twarzy vs pomiar: średnio {np.mean(d) * 1000:+.1f} mm, sd {np.std(d) * 1000:.1f} mm"
+        return f"twarz vs pomiar: mediana {np.median(d) * 1000:+.1f} mm, rozrzut {robust_sd(d) * 1000:.1f} mm"
 
     for label, path in ai_depths:
         ai = np.fromfile(path, dtype="<f4").reshape(h, w)
         aligned, a = align_disparity(ai, reference)
-        fused_ai, g = fuse_ai(aligned, reference, bilateral(reference))
+        fused_ai, g = fuse_ai(aligned, reference, bilateral(reference), face)
         panels.append((f"AI {label} (samo RGB), dopasowana", aligned,
                        vs_measured(aligned) + f"<br>skala surowa AI: {a['beforeMeanMm']:+.0f} mm od pomiaru"))
         panels.append((f"Fuzja: pomiar + detal {label}", fused_ai,
-                       vs_measured(fused_ai) + f"<br>rzeźba AI wzmocniona ×{g['gain']:.2f} "
-                       f"(zgodność kształtu r={g['correlation']:.2f})"))
+                       vs_measured(fused_ai) + (
+                           f"<br>rzeźba AI wzmocniona ×{g['gain']:.2f} (zgodność kształtu r={g['correlation']:.2f})"
+                           if g["gain"] else
+                           f"<br>AI pominięta: kształt niezgodny z pomiarem (r={g['correlation']:.2f})")))
 
     cal = meta.get("depthMapCalibration") or meta["calibration"]
     k, ref = cal["intrinsicMatrix"], cal["intrinsicMatrixReferenceDimensions"]
     fx, fy = k[0][0] * w / ref["width"], k[1][1] * h / ref["height"]
     cx, cy = k[0][2] * w / ref["width"], k[1][2] * h / ref["height"]
 
-    return assemble(panels, panels[0][1], fx, fy, cx, cy, std, texture(folder, work), folder.name)
+    return assemble(panels, panels[0][1], fx, fy, cx, cy, std, texture(folder, work), folder.name,
+                    face_mask(folder, (h, w)))
 
 
 def main() -> None:
