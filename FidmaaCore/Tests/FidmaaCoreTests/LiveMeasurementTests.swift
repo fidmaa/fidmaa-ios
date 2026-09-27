@@ -153,3 +153,25 @@ private func profile(_ pattern: String) -> [PixelSample] {
     #expect(runs?.upper == 0..<8)
     #expect(runs?.lower == 32..<40)
 }
+
+@Test func tongueGlareDoesNotHideTeeth() {
+    // teeth mid-bright at both lips, a very bright wet-tongue glint in the middle
+    let tooth = PixelSample(luma: 0.55, saturation: 0.25), cavity = PixelSample(luma: 0.15, saturation: 0.55)
+    let glare = PixelSample(luma: 0.97, saturation: 0.05)
+    var p = Array(repeating: cavity, count: 40)
+    for i in 0..<5 { p[i] = tooth }                 // upper incisors under the upper lip
+    for i in 35..<40 { p[i] = tooth }               // lower incisors above the lower lip
+    for i in 22..<26 { p[i] = glare }               // tongue glint
+    let e = IncisorDetector.edges(p)
+    #expect(e?.upper == 4)
+    #expect(e?.lower == 35)
+}
+
+@Test func teethMustTouchTheLips() {
+    // bright runs that start 20% away from the lips are tongue/glare, not incisors
+    let tooth = PixelSample(luma: 0.8, saturation: 0.1), cavity = PixelSample(luma: 0.15, saturation: 0.55)
+    var p = Array(repeating: cavity, count: 40)
+    for i in 8..<13 { p[i] = tooth }
+    for i in 27..<32 { p[i] = tooth }
+    #expect(IncisorDetector.edges(p) == nil)
+}

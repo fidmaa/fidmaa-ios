@@ -107,22 +107,30 @@ public struct PixelSample: Equatable, Sendable {
 }
 
 /// Finds incisal edges on a pixel profile running from the upper inner lip (index 0) to the lower
-/// inner lip (last index). Thresholds adapt to the profile: a tooth pixel is brighter than the midpoint
-/// between the darkest (cavity) and brightest sample, above an absolute floor, and not strongly colored.
+/// inner lip (last index). Incisors emerge right at the lips, so teeth are only looked for in bands next
+/// to each lip; the tongue (often with a bright wet glint) lies deeper and is ignored. A tooth pixel is
+/// brighter than the midpoint between the darkest sample (cavity) and the 90th-percentile brightness of
+/// the lip bands, above an absolute floor, and not strongly colored.
 public enum IncisorDetector {
     public static let minLuma: Float = 0.30
     public static let maxSaturation: Float = 0.45
     /// Brightest − darkest must exceed this, otherwise there is no cavity to tell teeth from.
     public static let minContrast: Float = 0.15
     public static let minRun = 3
-    /// Teeth must touch the outer 40% of the profile at their lip.
-    public static let band = 0.4
+    /// Teeth must start within this fraction of the profile from their lip.
+    public static let band = 0.15
 
     /// Per-sample tooth classification (also drawn on screen for troubleshooting).
     public static func classify(_ profile: [PixelSample]) -> [Bool] {
-        guard let lo = profile.map(\.luma).min(), let hi = profile.map(\.luma).max(), hi - lo >= minContrast else {
-            return Array(repeating: false, count: profile.count)
+        let n = profile.count
+        let bandLength = max(minRun, Int((Double(n) * band).rounded(.up)))
+        let lipBands = profile.prefix(bandLength) + profile.suffix(bandLength)
+        let sortedBands = lipBands.map(\.luma).sorted()
+        guard let lo = profile.map(\.luma).min(), !sortedBands.isEmpty else {
+            return Array(repeating: false, count: n)
         }
+        let hi = sortedBands[min(sortedBands.count - 1, Int(Double(sortedBands.count) * 0.9))]
+        guard hi - lo >= minContrast else { return Array(repeating: false, count: n) }
         let threshold = max(minLuma, (lo + hi) / 2)
         return profile.map { $0.luma > threshold && $0.saturation < maxSaturation }
     }
@@ -144,7 +152,7 @@ public enum IncisorDetector {
         }
         if let st = start { runs.append(st..<n) }
         runs = runs.filter { $0.count >= minRun }
-        let bandLength = Int(Double(n) * band)
+        let bandLength = max(minRun, Int((Double(n) * band).rounded(.up)))
         guard let upper = runs.first(where: { $0.lowerBound < bandLength }),
               let lower = runs.last(where: { $0.upperBound > n - bandLength }),
               upper != lower, upper.upperBound <= lower.lowerBound else { return nil }
