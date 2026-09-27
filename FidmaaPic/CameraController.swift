@@ -81,6 +81,18 @@ final class CameraController: NSObject {
     private(set) var depthImage: CGImage?
     /// Clockwise rotation that makes sensor-oriented frames upright on screen.
     private(set) var previewRotationAngle: CGFloat = 90
+    /// Latest live measurement (measurement pages).
+    private(set) var measurement = MeasurementState()
+    /// Live measurements need synchronized video; false if the video output couldn't be added.
+    private(set) var isMeasurementAvailable = false
+    var measurementMode = MeasurementMode.none {
+        didSet {
+            let mode = measurementMode
+            measurementModeLock.withLock { $0 = mode }
+            measurement = MeasurementState(maxTeeth: measurement.maxTeeth, maxLips: measurement.maxLips,
+                                           maxNeck: measurement.maxNeck)
+        }
+    }
     var isDepthViewActive = false {
         didSet {
             let active = isDepthViewActive
@@ -94,6 +106,10 @@ final class CameraController: NSObject {
     @ObservationIgnored private let depthQueue = DispatchQueue(label: "fidmaa.depth")
     @ObservationIgnored private let photoOutput = AVCapturePhotoOutput()
     @ObservationIgnored private let depthOutput = AVCaptureDepthDataOutput()
+    @ObservationIgnored private let videoOutput = AVCaptureVideoDataOutput()
+    @ObservationIgnored private var synchronizer: AVCaptureDataOutputSynchronizer?
+    @ObservationIgnored private let measurementEngine = LiveMeasurementEngine()
+    @ObservationIgnored private let measurementModeLock = OSAllocatedUnfairLock(initialState: MeasurementMode.none)
     /// sessionQueue only.
     @ObservationIgnored private var isConfigured = false
     /// sessionQueue only.
@@ -116,6 +132,27 @@ final class CameraController: NSObject {
     @ObservationIgnored private var previewAngleObservation: NSKeyValueObservation?
 
     private static let logger = Logger(subsystem: "com.fidmaa.pic", category: "camera")
+
+    override init() {
+        super.init()
+        measurementEngine.onUpdate = { [weak self] state in
+            DispatchQueue.main.async {
+                guard let self, self.measurementMode != .none else { return }
+                self.measurement = state
+            }
+        }
+    }
+
+    // MARK: - Live measurements (main thread)
+
+    func resetMeasurement() {
+        measurementEngine.reset(measurementMode)
+    }
+
+    /// Sensor-normalized point → preview layer coordinates (handles rotation, mirroring, aspect fill).
+    func previewPoint(fromSensor point: CGPoint) -> CGPoint? {
+        previewLayer?.layerPointConverted(fromCaptureDevicePoint: point)
+    }
 
     // MARK: - Lifecycle (call on main thread)
 
@@ -226,7 +263,24 @@ final class CameraController: NSObject {
             // Raw depth: frames are averaged ourselves; the distance median ignores holes.
             depthOutput.isFilteringEnabled = false
             depthOutput.alwaysDiscardsLateDepthData = true
-            depthOutput.setDelegate(self, callbackQueue: depthQueue)
+            if session.canAddOutput(videoOutput) {
+                // Preview-sized BGRA frames for Vision, delivered together with depth.
+                session.addOutput(videoOutput)
+                videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+                videoOutput.deliversPreviewSizedOutputBuffers = true
+                videoOutput.alwaysDiscardsLateVideoFrames = true
+                if let connection = videoOutput.connection(with: .video) {
+                    connection.automaticallyAdjustsVideoMirroring = false
+                    connection.isVideoMirrored = false  // same (sensor) frame as the depth map
+                }
+                let synchronizer = AVCaptureDataOutputSynchronizer(dataOutputs: [videoOutput, depthOutput])
+                synchronizer.setDelegate(self, queue: depthQueue)
+                self.synchronizer = synchronizer
+                DispatchQueue.main.async { self.isMeasurementAvailable = true }
+            } else {
+                Self.logger.error("Cannot add AVCaptureVideoDataOutput; live measurements disabled")
+                depthOutput.setDelegate(self, callbackQueue: depthQueue)
+            }
         } else {
             Self.logger.error("Cannot add AVCaptureDepthDataOutput; live distance hints disabled")
         }
@@ -363,9 +417,27 @@ final class CameraController: NSObject {
 
 // MARK: - Live depth → distance hint
 
-extension CameraController: AVCaptureDepthDataOutputDelegate {
+extension CameraController: AVCaptureDepthDataOutputDelegate, AVCaptureDataOutputSynchronizerDelegate {
     func depthDataOutput(_ output: AVCaptureDepthDataOutput, didOutput depthData: AVDepthData,
                          timestamp: CMTime, connection: AVCaptureConnection) {
+        _ = handleDepth(depthData, timestamp: timestamp)
+    }
+
+    func dataOutputSynchronizer(_ synchronizer: AVCaptureDataOutputSynchronizer,
+                                didOutput collection: AVCaptureSynchronizedDataCollection) {
+        guard let synced = collection.synchronizedData(for: depthOutput) as? AVCaptureSynchronizedDepthData,
+              !synced.depthDataWasDropped,
+              let frame = handleDepth(synced.depthData, timestamp: synced.timestamp) else { return }
+        let mode = measurementModeLock.withLock { $0 }
+        guard mode != .none,
+              let video = collection.synchronizedData(for: videoOutput) as? AVCaptureSynchronizedSampleBufferData,
+              !video.sampleBufferWasDropped,
+              let pixelBuffer = CMSampleBufferGetImageBuffer(video.sampleBuffer) else { return }
+        measurementEngine.process(pixelBuffer: pixelBuffer, depth: frame, mode: mode)
+    }
+
+    /// Depth for the frame buffer, distance hint and depth view (depthQueue). Returns the Float32 frame.
+    private func handleDepth(_ depthData: AVDepthData, timestamp: CMTime) -> DepthFrame? {
         let depth = depthData.depthDataType == kCVPixelFormatType_DepthFloat32
             ? depthData
             : depthData.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
@@ -375,7 +447,7 @@ extension CameraController: AVCaptureDepthDataOutputDelegate {
                        calibration: depth.cameraCalibrationData)
         }) else {
             Self.logger.error("Streamed depth is not Float32 after conversion; frame skipped")
-            return
+            return nil
         }
         frameBuffer.append(frame)
 
@@ -388,7 +460,7 @@ extension CameraController: AVCaptureDepthDataOutputDelegate {
             }
         }
 
-        guard now - lastDistanceUpdate >= CaptureConfig.distanceUpdateInterval else { return }
+        guard now - lastDistanceUpdate >= CaptureConfig.distanceUpdateInterval else { return frame }
         lastDistanceUpdate = now
         let median = frame.values.withUnsafeBufferPointer {
             DistanceEstimator.medianCenterDepth($0, width: frame.width, height: frame.height, rowStride: frame.width)
@@ -396,6 +468,7 @@ extension CameraController: AVCaptureDepthDataOutputDelegate {
         latestMedian.withLock { $0 = median }
         let status = DistanceEstimator.status(forMedian: median)
         DispatchQueue.main.async { self.distance = status }
+        return frame
     }
 
     private static func coloredImage(_ frame: DepthFrame) -> CGImage? {
