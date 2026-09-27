@@ -37,12 +37,11 @@ enum CaptureConfig {
     static let isDepthDataFiltered = false
     /// Minimum interval between live distance updates.
     static let distanceUpdateInterval: CFTimeInterval = 0.1
-    /// Streamed depth frames from this many seconds before the shutter are averaged.
-    static let stackWindowSeconds = 0.5
+    /// Averaging choices offered in the UI: number of streamed frames before the shutter.
+    static let averagingOptions = [1, 5, 10]
+    static let defaultAveragingFrames = 1
     /// Frames rotated more than this from the reference (last) frame are not averaged.
     static let stackRotationThresholdDegrees = 0.35
-    /// Fewer used frames than this triggers a "hold steadier" warning.
-    static let stackMinimumFrames = 5
     /// Ring buffer size (~1.5 s at 30 fps).
     static let frameBufferCapacity = 45
     /// Minimum interval between colored depth view updates (~15 fps).
@@ -56,6 +55,7 @@ enum CaptureConfig {
 
 /// Streamed depth frames plus matching motion samples, taken at the shutter.
 struct StackCapture {
+    let requestedFrames: Int
     let frames: [DepthFrame]
     /// Parallel to `frames`; nil where no motion sample was close enough.
     let motion: [MotionRecorder.Sample?]
@@ -296,13 +296,13 @@ final class CameraController: NSObject {
     // MARK: - Capture
 
     /// Call on main thread.
-    func capturePhoto() {
+    func capturePhoto(averagingFrames: Int) {
         guard state == .running, !isCapturing else { return }
         isCapturing = true
         lastError = nil
         let distanceAtCapture = latestMedian.withLock { $0 }
-        let stackFrames = frameBuffer.snapshot(window: CaptureConfig.stackWindowSeconds)
-        let stack = StackCapture(frames: stackFrames,
+        let stackFrames = frameBuffer.snapshot(count: averagingFrames)
+        let stack = StackCapture(requestedFrames: averagingFrames, frames: stackFrames,
                                  motion: stackFrames.map { motion.sample(near: $0.timestamp) },
                                  motionAvailable: motion.isAvailable)
         let rotationAngle = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture

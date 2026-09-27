@@ -10,6 +10,7 @@ struct ContentView: View {
     @State private var camera = CameraController()
     @State private var page = Page.camera
     @State private var showsGallery = false
+    @AppStorage("averagingFrames") private var averagingFrames = CaptureConfig.defaultAveragingFrames
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -34,6 +35,12 @@ struct ContentView: View {
                 .ignoresSafeArea()
                 VStack(spacing: 12) {
                     DistanceBanner(status: camera.distance)
+                    Picker("Uśrednianie", selection: $averagingFrames) {
+                        ForEach(CaptureConfig.averagingOptions, id: \.self) { Text("\($0)×").tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 180)
+                    .background(.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
                     Spacer()
                     ResultPanel(result: camera.lastResult, error: camera.lastError)
                     controls
@@ -70,7 +77,7 @@ struct ContentView: View {
 
             Spacer()
 
-            Button(action: camera.capturePhoto) {
+            Button { camera.capturePhoto(averagingFrames: averagingFrames) } label: {
                 ZStack {
                     Circle().stroke(.white, lineWidth: 4).frame(width: 76, height: 76)
                     if camera.isCapturing {

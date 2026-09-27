@@ -75,7 +75,7 @@ import Testing
 }
 
 @Test func captureMetadataStackSection() throws {
-    let stack = StackInfo(windowSeconds: 0.5, framesCaptured: 15, framesUsed: 12,
+    let stack = StackInfo(requestedFrames: 15, windowSeconds: 0.5, framesCaptured: 15, framesUsed: 12,
                           rotationThresholdDegrees: 0.35, width: 640, height: 480, motionAvailable: true)
     let metadata = CaptureMetadata(
         captureDate: Date(timeIntervalSince1970: 0), deviceModel: "x", systemVersion: "y", depth: nil,
@@ -85,6 +85,7 @@ import Testing
     let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     let s = try #require(json["stack"] as? [String: Any])
     #expect(s["framesUsed"] as? Int == 12)
+    #expect(s["requestedFrames"] as? Int == 15)
     #expect(s["medianFile"] as? String == "depth_median.f32")
     #expect(try CaptureMetadata.decode(data) == metadata)
 }

@@ -2,6 +2,9 @@ import Foundation
 
 /// Summary of the multi-frame depth stack, stored in `calibration.json`.
 public struct StackInfo: Codable, Equatable, Sendable {
+    /// Averaging setting chosen in the app (1×, 5×, 10×).
+    public var requestedFrames: Int
+    /// Time between the first and last frame of the stack.
     public var windowSeconds: Double
     public var framesCaptured: Int
     public var framesUsed: Int
@@ -15,8 +18,9 @@ public struct StackInfo: Codable, Equatable, Sendable {
     public var countFile = "depth_count.u8"
     public var framesFile = "frames.json"
 
-    public init(windowSeconds: Double, framesCaptured: Int, framesUsed: Int, rotationThresholdDegrees: Double,
+    public init(requestedFrames: Int, windowSeconds: Double, framesCaptured: Int, framesUsed: Int, rotationThresholdDegrees: Double,
                 width: Int, height: Int, motionAvailable: Bool) {
+        self.requestedFrames = requestedFrames
         self.windowSeconds = windowSeconds
         self.framesCaptured = framesCaptured
         self.framesUsed = framesUsed

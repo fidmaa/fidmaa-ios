@@ -27,14 +27,11 @@ final class DepthFrameBuffer {
         }
     }
 
-    /// Frames from the last `window` seconds (relative to the newest), oldest first,
-    /// restricted to the newest frame's dimensions.
-    func snapshot(window: Double) -> [DepthFrame] {
+    /// The newest `count` frames, oldest first, restricted to the newest frame's dimensions.
+    func snapshot(count: Int) -> [DepthFrame] {
         frames.withLock { frames in
             guard let newest = frames.last else { return [] }
-            return frames.filter {
-                $0.timestamp >= newest.timestamp - window && $0.width == newest.width && $0.height == newest.height
-            }
+            return Array(frames.filter { $0.width == newest.width && $0.height == newest.height }.suffix(count))
         }
     }
 }

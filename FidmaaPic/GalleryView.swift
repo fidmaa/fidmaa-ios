@@ -47,7 +47,8 @@ struct GalleryView: View {
                 ToolbarItem(placement: .bottomBar) {
                     Menu {
                         Button("ZIP — wszystkie dane") { prepareShare(.zip) }
-                        Button("HEIC — samo zdjęcie") { prepareShare(.heic) }
+                        Button("HEIC — pojedyncza mapa głębi") { prepareShare(.heicSingle) }
+                        Button("HEIC — uśredniona mapa głębi") { prepareShare(.heicAveraged) }
                     } label: {
                         if isPreparing {
                             ProgressView()
@@ -74,14 +75,7 @@ struct GalleryView: View {
                 Text("Pliki z danymi głębi zostaną trwale usunięte. Kopie w aplikacji Zdjęcia zostają.")
             }
             .sheet(item: $share) { bundle in
-                ActivityView(items: bundle.archives) {
-                    share = nil
-                    do {
-                        try CaptureArchiver.cleanUp(bundle.archives)
-                    } catch {
-                        Self.logger.error("Cleaning up share archives failed: \(error.localizedDescription, privacy: .public)")
-                    }
-                }
+                ActivityView(items: bundle.archives) { share = nil }
                 .ignoresSafeArea()
             }
         }
@@ -103,7 +97,7 @@ struct GalleryView: View {
         if selection.contains(folder) { selection.remove(folder) } else { selection.insert(folder) }
     }
 
-    private enum ShareFormat { case zip, heic }
+    private enum ShareFormat { case zip, heicSingle, heicAveraged }
 
     private func deleteSelection() {
         let failures = CaptureLibrary.deleteCaptures(captures.filter(selection.contains))
@@ -123,7 +117,8 @@ struct GalleryView: View {
             let result = Result {
                 switch format {
                 case .zip: try CaptureArchiver.zipCaptures(folders)
-                case .heic: try CaptureArchiver.exportPhotos(folders)
+                case .heicSingle: try CaptureArchiver.exportPhotos(folders, variant: .single)
+                case .heicAveraged: try CaptureArchiver.exportPhotos(folders, variant: .averaged)
                 }
             }
             await MainActor.run {

@@ -35,13 +35,14 @@ enum StackExporter {
         try FidmaaJSON.encode(framesFile).write(to: folder.appendingPathComponent("frames.json"))
 
         let usedCount = usedFrames.count
-        if usedCount < CaptureConfig.stackMinimumFrames {
-            warnings.append("Trzymaj stabilniej — uśredniono tylko \(usedCount) z \(stack.frames.count) klatek")
+        if usedCount < stack.requestedFrames {
+            warnings.append("Trzymaj stabilniej — uśredniono \(usedCount) z \(stack.requestedFrames) klatek")
         }
         if !stack.motionAvailable || referenceAttitude == nil {
             warnings.append("Brak danych z żyroskopu — uśredniono wszystkie klatki")
         }
-        return StackInfo(windowSeconds: CaptureConfig.stackWindowSeconds, framesCaptured: stack.frames.count,
+        let window = (stack.frames.last?.timestamp ?? 0) - (stack.frames.first?.timestamp ?? 0)
+        return StackInfo(requestedFrames: stack.requestedFrames, windowSeconds: window, framesCaptured: stack.frames.count,
                          framesUsed: usedCount, rotationThresholdDegrees: CaptureConfig.stackRotationThresholdDegrees,
                          width: reference.width, height: reference.height,
                          motionAvailable: stack.motionAvailable && referenceAttitude != nil)
