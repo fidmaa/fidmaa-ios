@@ -30,6 +30,8 @@ struct MeasurementState: Equatable {
     var from: CGPoint?
     var to: CGPoint?
     var outline: [CGPoint] = []
+    /// Small diagnostic line (rotation, frame sizes) for remote troubleshooting.
+    var debug: String?
 }
 
 /// Runs Vision on synchronized video + depth frames and measures incisor distance / mouth opening
@@ -55,7 +57,7 @@ final class LiveMeasurementEngine {
 
     /// Called for every synchronized frame while a measurement page is shown; throttled and dropped
     /// while the previous frame is still being analyzed.
-    func process(pixelBuffer: CVPixelBuffer, depth: DepthFrame, mode: MeasurementMode) {
+    func process(pixelBuffer: CVPixelBuffer, depth: DepthFrame, mode: MeasurementMode, rotationDegrees: Int) {
         let now = CACurrentMediaTime()
         guard mode != .none, now - lastRun >= Self.interval else { return }
         guard busy.withLock({ wasBusy in
@@ -66,7 +68,14 @@ final class LiveMeasurementEngine {
         lastRun = now
         queue.async {
             defer { self.busy.withLock { $0 = false } }
-            let state = self.analyze(pixelBuffer: pixelBuffer, depth: depth, mode: mode)
+            var state = self.analyze(pixelBuffer: pixelBuffer, depth: depth, mode: mode,
+                                     rotationDegrees: rotationDegrees)
+            // Maxima are read after the measurement updated them.
+            state.maxTeeth = self.teeth.maximum
+            state.maxLips = self.lips.maximum
+            state.maxNeck = self.neck.maximum
+            state.debug = "obrót \(rotationDegrees)° · obraz \(CVPixelBufferGetWidth(pixelBuffer))×"
+                + "\(CVPixelBufferGetHeight(pixelBuffer)) · głębia \(depth.width)×\(depth.height)"
             self.onUpdate?(state)
         }
     }
@@ -92,20 +101,17 @@ final class LiveMeasurementEngine {
 
     // MARK: - Analysis (queue)
 
-    private func analyze(pixelBuffer: CVPixelBuffer, depth: DepthFrame, mode: MeasurementMode) -> MeasurementState {
+    private func analyze(pixelBuffer: CVPixelBuffer, depth: DepthFrame, mode: MeasurementMode,
+                         rotationDegrees: Int) -> MeasurementState {
         var state = MeasurementState()
-        defer {
-            state.maxTeeth = teeth.maximum
-            state.maxLips = lips.maximum
-            state.maxNeck = neck.maximum
-        }
         guard let intrinsics = Self.intrinsics(depth) else {
             state.status = "Brak kalibracji kamery"
             return state
         }
         let request = VNDetectFaceLandmarksRequest()
         do {
-            try VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .right).perform([request])
+            try VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: Self.orientation(rotationDegrees))
+                .perform([request])
         } catch {
             Self.logger.error("Vision failed: \(error.localizedDescription, privacy: .public)")
             state.status = "Błąd wykrywania twarzy"
@@ -116,7 +122,7 @@ final class LiveMeasurementEngine {
             state.status = "Nie widzę twarzy"
             return state
         }
-        let frame = Frame(pixelBuffer: pixelBuffer, depth: depth, intrinsics: intrinsics)
+        let frame = Frame(pixelBuffer: pixelBuffer, depth: depth, intrinsics: intrinsics, rotation: rotationDegrees)
         switch mode {
         case .mouth: measureMouth(landmarks, frame: frame, state: &state)
         case .neck: measureNeck(landmarks, frame: frame, state: &state)
@@ -140,7 +146,7 @@ final class LiveMeasurementEngine {
             return
         }
         // Pixel profile from the upper to the lower inner lip, in the video buffer.
-        let steps = max(20, Int((lower.y - upper.y) * Double(frame.uprightHeight)))
+        let steps = max(20, Int((lower.y - upper.y) * Double(frame.uprightSize.height)))
         let path = (0...steps).map { i -> CGPoint in
             let t = Double(i) / Double(steps)
             return CGPoint(x: upper.x + (lower.x - upper.x) * t, y: upper.y + (lower.y - upper.y) * t)
@@ -178,12 +184,13 @@ final class LiveMeasurementEngine {
         state.outline = contour.map(frame.sensor)
         // Chin depth from just above the contour (inside the face).
         let chinInside = CGPoint(x: chin.x, y: chin.y - 3 / Double(frame.depthUprightHeight))
+        let verticalFocal = frame.isSideways ? frame.intrinsics.fx : frame.intrinsics.fy
         guard let chinDepth = frame.medianDepth(around: [frame.sensor(chinInside)]) else {
             state.status = "Brak głębi na brodzie"
             return
         }
         // Walk down (upright) one depth pixel at a time.
-        let maxSteps = Int(Double(NeckProfile.maxOffset) / Double(chinDepth) * Double(frame.intrinsics.fx)) + 2
+        let maxSteps = Int(Double(NeckProfile.maxOffset) / Double(chinDepth) * Double(verticalFocal)) + 2
         var offsets: [Float] = []
         var depths: [Float] = []
         var points: [CGPoint] = []
@@ -192,7 +199,7 @@ final class LiveMeasurementEngine {
             guard p.y < 1 else { break }
             let s = frame.sensor(p)
             points.append(s)
-            offsets.append(Float(k) * chinDepth / frame.intrinsics.fx)  // upright vertical = sensor x
+            offsets.append(Float(k) * chinDepth / verticalFocal)
             depths.append(frame.depthValue(s))
         }
         state.from = frame.sensor(chin)
@@ -206,6 +213,16 @@ final class LiveMeasurementEngine {
     }
 
     // MARK: - Helpers
+
+    /// Clockwise rotation that makes the sensor frame upright → Vision orientation.
+    private static func orientation(_ rotationDegrees: Int) -> CGImagePropertyOrientation {
+        switch ((rotationDegrees % 360) + 360) % 360 {
+        case 90: .right
+        case 180: .down
+        case 270: .left
+        default: .up
+        }
+    }
 
     private static func area(_ face: VNFaceObservation) -> CGFloat {
         face.boundingBox.width * face.boundingBox.height
@@ -226,24 +243,29 @@ private struct Frame {
     let pixelBuffer: CVPixelBuffer
     let depth: DepthFrame
     let intrinsics: Intrinsics
+    /// Clockwise degrees that make the sensor frame upright.
+    let rotation: Int
 
     var bufferWidth: Int { CVPixelBufferGetWidth(pixelBuffer) }
     var bufferHeight: Int { CVPixelBufferGetHeight(pixelBuffer) }
-    /// Upright (Vision `.right`) image height in video pixels = buffer width.
-    var uprightHeight: Int { bufferWidth }
-    /// Upright height in depth pixels = depth width.
-    var depthUprightHeight: Int { depth.width }
+    var isSideways: Bool { ((rotation % 180) + 180) % 180 != 0 }
+    /// Upright image size in video pixels.
+    var uprightSize: CGSize {
+        isSideways ? CGSize(width: bufferHeight, height: bufferWidth) : CGSize(width: bufferWidth, height: bufferHeight)
+    }
+    /// Upright height in depth pixels.
+    var depthUprightHeight: Int { isSideways ? depth.width : depth.height }
 
     /// Landmark region → upright-normalized points (top-left origin).
     func upright(_ region: VNFaceLandmarkRegion2D) -> [CGPoint] {
-        let size = CGSize(width: bufferHeight, height: bufferWidth)
+        let size = uprightSize
         return region.pointsInImage(imageSize: size).map {
             CGPoint(x: $0.x / size.width, y: 1 - $0.y / size.height)
         }
     }
 
     func sensor(_ upright: CGPoint) -> CGPoint {
-        let s = UprightMapping.sensor(fromUpright: (x: Double(upright.x), y: Double(upright.y)))
+        let s = UprightMapping.sensor(fromUpright: (x: Double(upright.x), y: Double(upright.y)), rotationDegrees: rotation)
         return CGPoint(x: s.x, y: s.y)
     }
 

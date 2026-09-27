@@ -110,6 +110,9 @@ final class CameraController: NSObject {
     @ObservationIgnored private var synchronizer: AVCaptureDataOutputSynchronizer?
     @ObservationIgnored private let measurementEngine = LiveMeasurementEngine()
     @ObservationIgnored private let measurementModeLock = OSAllocatedUnfairLock(initialState: MeasurementMode.none)
+    /// Clockwise degrees making sensor frames upright on screen (same as the depth view); read on depthQueue.
+    @ObservationIgnored private let displayRotationLock = OSAllocatedUnfairLock(
+        initialState: Int(90 + CaptureConfig.depthViewExtraRotation))
     /// sessionQueue only.
     @ObservationIgnored private var isConfigured = false
     /// sessionQueue only.
@@ -149,9 +152,14 @@ final class CameraController: NSObject {
         measurementEngine.reset(measurementMode)
     }
 
-    /// Sensor-normalized point → preview layer coordinates (handles rotation, mirroring, aspect fill).
-    func previewPoint(fromSensor point: CGPoint) -> CGPoint? {
-        previewLayer?.layerPointConverted(fromCaptureDevicePoint: point)
+    /// Sensor-normalized point → screen point, with exactly the transform of the (user-verified) depth view.
+    func screenPoint(fromSensor point: CGPoint, screen: CGSize) -> CGPoint {
+        let p = ScreenMapping.screenPoint(sensor: (x: Double(point.x), y: Double(point.y)),
+                                          imageSize: Size2D(width: 640, height: 480),
+                                          screen: Size2D(width: Double(screen.width), height: Double(screen.height)),
+                                          rotationDegrees: Double(previewRotationAngle + CaptureConfig.depthViewExtraRotation),
+                                          mirrored: CaptureConfig.depthViewMirrored)
+        return CGPoint(x: p.x, y: p.y)
     }
 
     // MARK: - Lifecycle (call on main thread)
@@ -233,6 +241,8 @@ final class CameraController: NSObject {
         }
         connection.videoRotationAngle = angle
         previewRotationAngle = angle
+        let display = Int((angle + CaptureConfig.depthViewExtraRotation).rounded())
+        displayRotationLock.withLock { $0 = display }
     }
 
     private func fail(_ error: Error) {
@@ -434,7 +444,8 @@ extension CameraController: AVCaptureDepthDataOutputDelegate, AVCaptureDataOutpu
               let video = collection.synchronizedData(for: videoOutput) as? AVCaptureSynchronizedSampleBufferData,
               !video.sampleBufferWasDropped,
               let pixelBuffer = CMSampleBufferGetImageBuffer(video.sampleBuffer) else { return }
-        measurementEngine.process(pixelBuffer: pixelBuffer, depth: frame, mode: mode)
+        measurementEngine.process(pixelBuffer: pixelBuffer, depth: frame, mode: mode,
+                                  rotationDegrees: displayRotationLock.withLock { $0 })
     }
 
     /// Depth for the frame buffer, distance hint and depth view (depthQueue). Returns the Float32 frame.

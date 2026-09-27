@@ -24,13 +24,14 @@ struct MeasurementPage: View {
     }
 
     private var overlay: some View {
-        Canvas { context, _ in
-            for p in state.outline.compactMap(camera.previewPoint(fromSensor:)) {
+        Canvas { context, size in
+            let map = { (p: CGPoint) in camera.screenPoint(fromSensor: p, screen: size) }
+            for p in state.outline.map(map) {
                 context.fill(Path(ellipseIn: CGRect(x: p.x - 2, y: p.y - 2, width: 4, height: 4)),
                              with: .color(.white.opacity(0.7)))
             }
-            let a = state.from.flatMap(camera.previewPoint(fromSensor:))
-            let b = state.to.flatMap(camera.previewPoint(fromSensor:))
+            let a = state.from.map(map)
+            let b = state.to.map(map)
             if let a, let b {
                 var line = Path()
                 line.move(to: a)
@@ -74,6 +75,9 @@ struct MeasurementPage: View {
                 Text(status).font(.callout).foregroundStyle(.orange)
             }
             Text("stuknij, aby wyzerować").font(.caption2).foregroundStyle(.secondary)
+            if isActive, let debug = state.debug {
+                Text(debug).font(.system(size: 9).monospaced()).foregroundStyle(.secondary)
+            }
         }
         .foregroundStyle(.white)
         .padding(12)

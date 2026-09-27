@@ -1,3 +1,5 @@
+import Foundation
+
 /// Pinhole intrinsics in pixels of the depth grid.
 public struct Intrinsics: Equatable, Sendable {
     public var fx: Float
@@ -21,11 +23,36 @@ public struct Intrinsics: Equatable, Sendable {
     }
 }
 
-/// Front camera held upright: frames are in sensor orientation and are shown rotated 90° clockwise
-/// (EXIF 6, Vision `.right`). Coordinates are normalized with a top-left origin.
+/// Frames are in sensor orientation; the upright image is the frame rotated clockwise by
+/// `rotationDegrees` (a multiple of 90; 90 = EXIF 6 / Vision `.right`). Normalized, top-left origin.
 public enum UprightMapping {
-    public static func sensor(fromUpright p: (x: Double, y: Double)) -> (x: Double, y: Double) {
-        (x: p.y, y: 1 - p.x)
+    public static func sensor(fromUpright p: (x: Double, y: Double), rotationDegrees: Int = 90) -> (x: Double, y: Double) {
+        switch ((rotationDegrees % 360) + 360) % 360 {
+        case 90: (x: p.y, y: 1 - p.x)
+        case 180: (x: 1 - p.x, y: 1 - p.y)
+        case 270: (x: 1 - p.y, y: p.x)
+        default: p
+        }
+    }
+}
+
+/// Where a sensor-normalized point lands on screen when the frame is shown the way DepthMapView shows it:
+/// aspect-filled into a frame (width/height swapped for sideways rotations), rotated clockwise about the
+/// center by `rotationDegrees`, then mirrored horizontally if `mirrored`.
+public enum ScreenMapping {
+    public static func screenPoint(sensor p: (x: Double, y: Double), imageSize: Size2D, screen: Size2D,
+                                   rotationDegrees: Double, mirrored: Bool) -> (x: Double, y: Double) {
+        let sideways = Int(rotationDegrees.rounded()) % 180 != 0
+        let fw = sideways ? screen.height : screen.width
+        let fh = sideways ? screen.width : screen.height
+        let scale = max(fw / imageSize.width, fh / imageSize.height)
+        let x = p.x * imageSize.width * scale - (imageSize.width * scale - fw) / 2 - fw / 2
+        let y = p.y * imageSize.height * scale - (imageSize.height * scale - fh) / 2 - fh / 2
+        let t = rotationDegrees * .pi / 180
+        var rx = x * cos(t) - y * sin(t)
+        let ry = x * sin(t) + y * cos(t)
+        if mirrored { rx = -rx }
+        return (x: screen.width / 2 + rx, y: screen.height / 2 + ry)
     }
 }
 

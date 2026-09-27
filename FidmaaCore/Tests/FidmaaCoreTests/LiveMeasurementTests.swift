@@ -77,3 +77,41 @@ private func profile(_ pattern: String) -> [PixelSample] {
     #expect(hold.maximum == nil)
     #expect(hold.add(10) == 10)
 }
+
+@Test func uprightMappingForAllRotations() {
+    let u = (x: 0.25, y: 0.1)
+    let r0 = UprightMapping.sensor(fromUpright: u, rotationDegrees: 0)
+    #expect(r0.x == 0.25 && r0.y == 0.1)
+    let r90 = UprightMapping.sensor(fromUpright: u, rotationDegrees: 90)
+    #expect(abs(r90.x - 0.1) < 1e-12 && abs(r90.y - 0.75) < 1e-12)
+    let r180 = UprightMapping.sensor(fromUpright: u, rotationDegrees: 180)
+    #expect(abs(r180.x - 0.75) < 1e-12 && abs(r180.y - 0.9) < 1e-12)
+    let r270 = UprightMapping.sensor(fromUpright: u, rotationDegrees: 270)
+    #expect(abs(r270.x - 0.9) < 1e-12 && abs(r270.y - 0.25) < 1e-12)
+    let r450 = UprightMapping.sensor(fromUpright: u, rotationDegrees: 450)
+    #expect(abs(r450.x - r90.x) < 1e-12 && abs(r450.y - r90.y) < 1e-12)
+}
+
+@Test func screenMappingIdentity() {
+    let p = ScreenMapping.screenPoint(sensor: (x: 0.25, y: 0.5), imageSize: Size2D(width: 640, height: 480),
+                                      screen: Size2D(width: 640, height: 480), rotationDegrees: 0, mirrored: false)
+    #expect(abs(p.x - 160) < 1e-9 && abs(p.y - 240) < 1e-9)
+}
+
+@Test func screenMappingRotatedClockwiseAndMirrored() {
+    let image = Size2D(width: 640, height: 480), screen = Size2D(width: 480, height: 640)
+    // Rotating the image 90° clockwise puts its top-left corner at the screen's top-right.
+    let p = ScreenMapping.screenPoint(sensor: (x: 0, y: 0), imageSize: image, screen: screen,
+                                      rotationDegrees: 90, mirrored: false)
+    #expect(abs(p.x - 480) < 1e-9 && abs(p.y - 0) < 1e-9)
+    let m = ScreenMapping.screenPoint(sensor: (x: 0, y: 0), imageSize: image, screen: screen,
+                                      rotationDegrees: 90, mirrored: true)
+    #expect(abs(m.x - 0) < 1e-9 && abs(m.y - 0) < 1e-9)
+}
+
+@Test func screenMappingAspectFillCrops() {
+    // 4:3 image filling a tall screen (sideways): scale by height, horizontal overflow is cropped
+    let p = ScreenMapping.screenPoint(sensor: (x: 0.5, y: 0.5), imageSize: Size2D(width: 640, height: 480),
+                                      screen: Size2D(width: 390, height: 844), rotationDegrees: 90, mirrored: true)
+    #expect(abs(p.x - 195) < 1e-9 && abs(p.y - 422) < 1e-9)
+}
