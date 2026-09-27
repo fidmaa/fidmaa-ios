@@ -159,7 +159,7 @@ def resolve_capture(path: Path, work: Path) -> Path:
     return path
 
 
-def build(folder: Path, work: Path, ai_depth: Path | None = None) -> dict:
+def build(folder: Path, work: Path, ai_depths: list[tuple[str, Path]] = (), compact: bool = False) -> dict:
     meta = json.loads((folder / "calibration.json").read_text())
     depth_info = meta["depth"]
     w, h = depth_info["width"], depth_info["height"]
@@ -188,23 +188,26 @@ def build(folder: Path, work: Path, ai_depth: Path | None = None) -> dict:
                            f"Apple vs surowa: średnio {s['meanDiffMm']:+.2f} mm, sd {s['sdDiffMm']:.2f} mm"))
     elif not panels:
         panels.append(("Głębia zdjęcia (surowa)", photo, ""))
-    if ai_depth is not None:
-        if reference is None:
-            sys.exit("AI panels need streamed frames in the capture (a reference to align to)")
-        ai = np.fromfile(ai_depth, dtype="<f4").reshape(h, w)
-        aligned, _ = align_disparity(ai, reference)
+    if ai_depths and reference is None:
+        sys.exit("AI panels need streamed frames in the capture (a reference to align to)")
+    if compact and ai_depths:
+        panels = [p for p in panels if "bilateral" in p[0]][-1:]  # best measured panel only
+    face = (slice(h // 2 - 50, h // 2 + 50), slice(w // 2 - 50, w // 2 + 50))
+
+    def vs_measured(a):
+        d = (a - reference)[face]
+        d = d[np.isfinite(d)]
+        return f"środek twarzy vs pomiar: średnio {np.mean(d) * 1000:+.1f} mm, sd {np.std(d) * 1000:.1f} mm"
+
+    for label, path in ai_depths:
+        ai = np.fromfile(path, dtype="<f4").reshape(h, w)
+        aligned, a = align_disparity(ai, reference)
         fused_ai, g = fuse_ai(aligned, reference, bilateral(reference))
-        face = (slice(h // 2 - 50, h // 2 + 50), slice(w // 2 - 50, w // 2 + 50))
-
-        def vs_measured(a):
-            d = (a - reference)[face]
-            d = d[np.isfinite(d)]
-            return f"środek twarzy vs pomiar: średnio {np.mean(d) * 1000:+.1f} mm, sd {np.std(d) * 1000:.1f} mm"
-
-        panels.append(("AI (Depth Pro, samo RGB), dopasowana", aligned, vs_measured(aligned)))
-        panels.append(("Fuzja: pomiar (kształt) + AI (detal)", fused_ai,
+        panels.append((f"AI {label} (samo RGB), dopasowana", aligned,
+                       vs_measured(aligned) + f"<br>skala surowa AI: {a['beforeMeanMm']:+.0f} mm od pomiaru"))
+        panels.append((f"Fuzja: pomiar + detal {label}", fused_ai,
                        vs_measured(fused_ai) + f"<br>rzeźba AI wzmocniona ×{g['gain']:.2f} "
-                       f"(zgodność kształtu z pomiarem r={g['correlation']:.2f})"))
+                       f"(zgodność kształtu r={g['correlation']:.2f})"))
 
     cal = meta.get("depthMapCalibration") or meta["calibration"]
     k, ref = cal["intrinsicMatrix"], cal["intrinsicMatrixReferenceDimensions"]
@@ -240,11 +243,16 @@ def main() -> None:
     parser.add_argument("capture", type=Path, help="capture folder or its .zip")
     parser.add_argument("-o", "--output", type=Path, help="output HTML (default: <capture>-3d.html in cwd)")
     parser.add_argument("--open", action="store_true", help="open in the default browser")
-    parser.add_argument("--ai-depth", type=Path, help="Float32 map from tools/depth_ai.py (adds AI panels)")
+    parser.add_argument("--ai-depth", action="append", default=[], metavar="[LABEL=]PATH",
+                        help="Float32 map from tools/depth_ai.py (adds AI panels); repeatable")
+    parser.add_argument("--compact", action="store_true",
+                        help="with --ai-depth: show only the best measured panel plus the AI panels")
     args = parser.parse_args()
     with tempfile.TemporaryDirectory() as tmp:
         folder = resolve_capture(args.capture, Path(tmp))
-        data = build(folder, Path(tmp), args.ai_depth)
+        ai = [(v.split("=", 1)[0], Path(v.split("=", 1)[1])) if "=" in v else (Path(v).stem, Path(v))
+              for v in args.ai_depth]
+        data = build(folder, Path(tmp), ai, args.compact)
     out = args.output or Path(f"{data['title']}-3d.html")
     template = (TOOLS / "view3d_template.html").read_text()
     out.write_text(template.replace("__DATA__", json.dumps(data)))
