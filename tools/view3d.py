@@ -29,6 +29,8 @@ SIGMA_RANGE_M = 0.002    # bilateral: depth steps above ~2 mm are edges and are 
 RADIUS_PX = 4
 FUSION_SIGMA_PX = 8.0    # fusion: raw−guide difference is kept at scales above this (~6 mm on a face at 35 cm)
 FUSION_MAX_DIFF_M = 0.06  # larger differences are outliers (edges), not shape
+AI_SPLIT_SIGMA_PX = 4.0  # AI fusion: measurement decides above this scale (~3 mm on a face at 35 cm)
+AI_GAIN_BAND_PX = (4.0, 16.0)  # AI relief gain is estimated where both see real shape (nose, cheeks)
 NEAR, FAR = 0.2, 0.6     # meters kept in the view
 TEXTURE_SIZE = (1280, 960)
 
@@ -76,6 +78,35 @@ def fuse(apple: np.ndarray, reference: np.ndarray) -> tuple[np.ndarray, dict]:
     stats = dict(meanDiffMm=float(np.mean(diff[usable]) * 1000), sdDiffMm=float(np.std(diff[usable]) * 1000),
                  usedFraction=float(usable.sum() / max(both.sum(), 1)))
     return fused.astype(np.float32), stats
+
+
+def fuse_ai(ai: np.ndarray, measured: np.ndarray, measured_smooth: np.ndarray) -> tuple[np.ndarray, dict]:
+    """Measured depth above AI_SPLIT_SIGMA_PX + AI detail below it, scaled by the AI's relief gain.
+
+    Monocular depth gets the shape right but too shallow (on the first test face: 1.57× too flat at
+    nose/cheek scale, correlation 0.89 with the measurement). The gain is fitted per capture on a
+    band where the measurement is reliable, then applied to the AI's fine detail.
+    """
+    def blur(a, sigma):
+        valid = np.isfinite(a) & (a > 0)
+        return normalized_blur(np.where(valid, a, 0.0), valid, sigma)
+
+    # Face window around the nose tip (closest point near the image center), inside the head outline.
+    h, w = measured.shape
+    center = measured_smooth[h // 2 - 100:h // 2 + 100, w // 2 - 100:w // 2 + 100]
+    ty, tx = np.unravel_index(np.nanargmin(center), center.shape)
+    ty, tx = ty + h // 2 - 100, tx + w // 2 - 100
+    face = np.zeros_like(measured, dtype=bool)
+    face[max(0, ty - 70):ty + 80, max(0, tx - 75):tx + 85] = True
+    lo, hi = AI_GAIN_BAND_PX
+    band_ai = blur(ai, lo) - blur(ai, hi)
+    band_measured = blur(measured_smooth, lo) - blur(measured_smooth, hi)
+    m = face & np.isfinite(band_ai) & np.isfinite(band_measured)
+    gain = float(np.sum(band_ai[m] * band_measured[m]) / np.sum(band_ai[m] ** 2))
+    correlation = float(np.corrcoef(band_ai[m], band_measured[m])[0, 1])
+    fused = blur(measured_smooth, AI_SPLIT_SIGMA_PX) + gain * (ai - blur(ai, AI_SPLIT_SIGMA_PX))
+    fused = np.where(np.isfinite(ai) & (ai > 0), fused, np.nan).astype(np.float32)
+    return fused, dict(gain=gain, correlation=correlation)
 
 
 def align_disparity(ai: np.ndarray, reference: np.ndarray) -> tuple[np.ndarray, dict]:
@@ -162,7 +193,7 @@ def build(folder: Path, work: Path, ai_depth: Path | None = None) -> dict:
             sys.exit("AI panels need streamed frames in the capture (a reference to align to)")
         ai = np.fromfile(ai_depth, dtype="<f4").reshape(h, w)
         aligned, _ = align_disparity(ai, reference)
-        fused_ai, _ = fuse(aligned, reference)
+        fused_ai, g = fuse_ai(aligned, reference, bilateral(reference))
         face = (slice(h // 2 - 50, h // 2 + 50), slice(w // 2 - 50, w // 2 + 50))
 
         def vs_measured(a):
@@ -171,7 +202,9 @@ def build(folder: Path, work: Path, ai_depth: Path | None = None) -> dict:
             return f"środek twarzy vs pomiar: średnio {np.mean(d) * 1000:+.1f} mm, sd {np.std(d) * 1000:.1f} mm"
 
         panels.append(("AI (Depth Pro, samo RGB), dopasowana", aligned, vs_measured(aligned)))
-        panels.append(("Fuzja: pomiar (duże skale) + AI (detal)", fused_ai, vs_measured(fused_ai)))
+        panels.append(("Fuzja: pomiar (kształt) + AI (detal)", fused_ai,
+                       vs_measured(fused_ai) + f"<br>rzeźba AI wzmocniona ×{g['gain']:.2f} "
+                       f"(zgodność kształtu z pomiarem r={g['correlation']:.2f})"))
 
     cal = meta.get("depthMapCalibration") or meta["calibration"]
     k, ref = cal["intrinsicMatrix"], cal["intrinsicMatrixReferenceDimensions"]
