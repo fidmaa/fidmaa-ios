@@ -2,7 +2,10 @@ import AVKit
 import FidmaaCore
 import SwiftUI
 
+/// Swipe order: neck ← mouth ← camera → depth.
 private enum Page: Hashable {
+    case neck
+    case mouth
     case camera
     case depth
 }
@@ -23,9 +26,15 @@ struct ContentView: View {
                     .multilineTextAlignment(.center)
                     .padding()
             } else {
-                // Paged so the swipe follows the finger: camera ← → colored depth.
+                // One live preview under transparent pages; the swipe follows the finger.
+                CameraPreviewView(session: camera.session, onLayerReady: camera.attach(previewLayer:))
+                    .ignoresSafeArea()
                 TabView(selection: $page) {
-                    CameraPreviewView(session: camera.session, onLayerReady: camera.attach(previewLayer:))
+                    MeasurementPage(mode: .neck, camera: camera)
+                        .tag(Page.neck)
+                    MeasurementPage(mode: .mouth, camera: camera)
+                        .tag(Page.mouth)
+                    Color.clear
                         .tag(Page.camera)
                     DepthMapView(image: camera.depthImage,
                                  rotationAngle: camera.previewRotationAngle + CaptureConfig.depthViewExtraRotation,
@@ -49,7 +58,14 @@ struct ContentView: View {
                 .padding()
             }
         }
-        .onChange(of: page) { _, page in camera.isDepthViewActive = page == .depth }
+        .onChange(of: page) { _, page in
+            camera.isDepthViewActive = page == .depth
+            camera.measurementMode = switch page {
+            case .mouth: .mouth
+            case .neck: .neck
+            case .camera, .depth: .none
+            }
+        }
         // Volume buttons, Camera Control and Bluetooth shutter remotes (which send "volume up") take a photo.
         .onCameraCaptureEvent(isEnabled: !showsGallery) { event in
             if event.phase == .ended { takePhoto() }
