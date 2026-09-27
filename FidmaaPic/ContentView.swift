@@ -102,6 +102,9 @@ private struct ResultPanel: View {
                 Text("Zapisano: \(result.folder.lastPathComponent)")
                 Text("Głębia: \(result.accuracy.rawValue.uppercased())")
                     .foregroundStyle(result.accuracy == .absolute ? .green : .orange)
+                if let used = result.framesUsed, let captured = result.framesCaptured {
+                    Text("Klatki uśrednione: \(used)/\(captured)")
+                }
                 ForEach(result.warnings, id: \.self) { warning in
                     Text("⚠︎ \(warning)").foregroundStyle(.yellow)
                 }

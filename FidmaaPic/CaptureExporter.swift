@@ -30,7 +30,8 @@ enum CaptureExporter {
         (.glasses, "glasses.png", \.glasses),
     ]
 
-    static func export(photo: AVCapturePhoto, distance: Float?, date: Date = Date()) async throws -> CaptureResult {
+    static func export(photo: AVCapturePhoto, distance: Float?, stack: StackCapture,
+                       date: Date = Date()) async throws -> CaptureResult {
         let documents = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask,
                                                     appropriateFor: nil, create: true)
         let folder = try ExportNaming.createUniqueFolder(in: documents, date: date)
@@ -97,6 +98,12 @@ enum CaptureExporter {
             warnings.append("Brak masek — czy twarz była w kadrze?")
         }
 
+        // Multi-frame stack
+        var stackInfo: StackInfo?
+        attempt("stos klatek") {
+            stackInfo = try StackExporter.export(stack, to: folder, warnings: &warnings)
+        }
+
         // Metadata
         let dims = photo.resolvedSettings.photoDimensions
         let orientation = (photo.metadata[kCGImagePropertyOrientation as String] as? NSNumber)?.intValue ?? 1
@@ -109,7 +116,8 @@ enum CaptureExporter {
                              mirrored: ExifOrientation.isMirrored(orientation)),
             calibration: calibration,
             mattes: mattes,
-            distanceAtCaptureMeters: distance)
+            distanceAtCaptureMeters: distance,
+            stack: stackInfo)
         attempt("calibration.json") {
             try metadata.jsonData().write(to: folder.appendingPathComponent("calibration.json"))
         }
@@ -124,7 +132,9 @@ enum CaptureExporter {
 
         let thumbnail = UIImage(data: heic)?.preparingThumbnail(of: CGSize(width: 240, height: 320))
         logger.info("Exported \(folder.lastPathComponent, privacy: .public), accuracy \(accuracy.rawValue, privacy: .public)")
-        return CaptureResult(folder: folder, accuracy: accuracy, thumbnail: thumbnail, warnings: warnings)
+        return CaptureResult(folder: folder, accuracy: accuracy, thumbnail: thumbnail,
+                             framesUsed: stackInfo?.framesUsed, framesCaptured: stackInfo?.framesCaptured,
+                             warnings: warnings)
     }
 
     private static func label(_ accuracy: AVDepthData.Accuracy) -> DepthAccuracyLabel {
@@ -135,7 +145,7 @@ enum CaptureExporter {
         }
     }
 
-    private static func makeCalibration(_ c: AVCameraCalibrationData) -> CalibrationInfo {
+    static func makeCalibration(_ c: AVCameraCalibrationData) -> CalibrationInfo {
         let i = c.intrinsicMatrix
         let e = c.extrinsicMatrix
         return CalibrationInfo(

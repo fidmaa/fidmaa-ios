@@ -4,14 +4,16 @@ import os
 /// Delegate for one capture. Calls `completion` exactly once.
 final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
     private let distance: Float?
+    private let stack: StackCapture
     private let completion: (Result<CaptureResult, Error>) -> Void
     /// Set when a photo was handed to the exporter; the exporter then owns the completion.
     private var didReceivePhoto = false
 
     private static let logger = Logger(subsystem: "com.fidmaa.pic", category: "capture")
 
-    init(distance: Float?, completion: @escaping (Result<CaptureResult, Error>) -> Void) {
+    init(distance: Float?, stack: StackCapture, completion: @escaping (Result<CaptureResult, Error>) -> Void) {
         self.distance = distance
+        self.stack = stack
         self.completion = completion
     }
 
@@ -22,10 +24,11 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
         }
         didReceivePhoto = true
         let distance = self.distance
+        let stack = self.stack
         let completion = self.completion
         Task.detached(priority: .userInitiated) {
             do {
-                completion(.success(try await CaptureExporter.export(photo: photo, distance: distance)))
+                completion(.success(try await CaptureExporter.export(photo: photo, distance: distance, stack: stack)))
             } catch {
                 completion(.failure(error))
             }

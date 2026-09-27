@@ -27,6 +27,8 @@ struct CaptureResult {
     let folder: URL
     let accuracy: DepthAccuracyLabel
     let thumbnail: UIImage?
+    let framesUsed: Int?
+    let framesCaptured: Int?
     let warnings: [String]
 }
 
@@ -35,6 +37,22 @@ enum CaptureConfig {
     static let isDepthDataFiltered = false
     /// Minimum interval between live distance updates.
     static let distanceUpdateInterval: CFTimeInterval = 0.1
+    /// Streamed depth frames from this many seconds before the shutter are averaged.
+    static let stackWindowSeconds = 0.5
+    /// Frames rotated more than this from the reference (last) frame are not averaged.
+    static let stackRotationThresholdDegrees = 0.35
+    /// Fewer used frames than this triggers a "hold steadier" warning.
+    static let stackMinimumFrames = 5
+    /// Ring buffer size (~1.5 s at 30 fps).
+    static let frameBufferCapacity = 45
+}
+
+/// Streamed depth frames plus matching motion samples, taken at the shutter.
+struct StackCapture {
+    let frames: [DepthFrame]
+    /// Parallel to `frames`; nil where no motion sample was close enough.
+    let motion: [MotionRecorder.Sample?]
+    let motionAvailable: Bool
 }
 
 @Observable
@@ -63,6 +81,8 @@ final class CameraController: NSObject {
     /// depthQueue only.
     @ObservationIgnored private var lastDistanceUpdate: CFTimeInterval = 0
     @ObservationIgnored private let latestMedian = OSAllocatedUnfairLock<Float?>(initialState: nil)
+    @ObservationIgnored private let frameBuffer = DepthFrameBuffer(capacity: CaptureConfig.frameBufferCapacity)
+    @ObservationIgnored private let motion = MotionRecorder()
     /// sessionQueue only.
     @ObservationIgnored private var device: AVCaptureDevice?
     /// main thread only.
@@ -95,6 +115,7 @@ final class CameraController: NSObject {
     }
 
     func stop() {
+        motion.stop()
         sessionQueue.async {
             if self.session.isRunning { self.session.stopRunning() }
         }
@@ -112,6 +133,7 @@ final class CameraController: NSObject {
                 DispatchQueue.main.async {
                     self.isStarting = false
                     self.state = .running
+                    self.motion.start()
                     self.setUpRotation(device: device)
                 }
             } catch {
@@ -177,7 +199,8 @@ final class CameraController: NSObject {
 
         if session.canAddOutput(depthOutput) {
             session.addOutput(depthOutput)
-            depthOutput.isFilteringEnabled = true
+            // Raw depth: frames are averaged ourselves; the distance median ignores holes.
+            depthOutput.isFilteringEnabled = false
             depthOutput.alwaysDiscardsLateDepthData = true
             depthOutput.setDelegate(self, callbackQueue: depthQueue)
         } else {
@@ -256,11 +279,15 @@ final class CameraController: NSObject {
         isCapturing = true
         lastError = nil
         let distanceAtCapture = latestMedian.withLock { $0 }
+        let stackFrames = frameBuffer.snapshot(window: CaptureConfig.stackWindowSeconds)
+        let stack = StackCapture(frames: stackFrames,
+                                 motion: stackFrames.map { motion.sample(near: $0.timestamp) },
+                                 motionAvailable: motion.isAvailable)
         let rotationAngle = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture
         sessionQueue.async {
             let settings = self.makePhotoSettings(rotationAngle: rotationAngle)
             let id = settings.uniqueID
-            let processor = PhotoCaptureProcessor(distance: distanceAtCapture) { [weak self] outcome in
+            let processor = PhotoCaptureProcessor(distance: distanceAtCapture, stack: stack) { [weak self] outcome in
                 guard let self else { return }
                 DispatchQueue.main.async {
                     self.isCapturing = false
@@ -310,16 +337,25 @@ final class CameraController: NSObject {
 extension CameraController: AVCaptureDepthDataOutputDelegate {
     func depthDataOutput(_ output: AVCaptureDepthDataOutput, didOutput depthData: AVDepthData,
                          timestamp: CMTime, connection: AVCaptureConnection) {
-        let now = CACurrentMediaTime()
-        guard now - lastDistanceUpdate >= CaptureConfig.distanceUpdateInterval else { return }
-        lastDistanceUpdate = now
-
         let depth = depthData.depthDataType == kCVPixelFormatType_DepthFloat32
             ? depthData
             : depthData.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
-        let median = PixelBufferAccess.withFloat32(depth.depthDataMap) {
-            DistanceEstimator.medianCenterDepth($0, width: $1, height: $2, rowStride: $3)
-        } ?? nil
+        guard let frame = PixelBufferAccess.withFloat32(depth.depthDataMap, { values, width, height, rowStride in
+            DepthFrame(timestamp: CMTimeGetSeconds(timestamp), width: width, height: height,
+                       values: DepthRaw.packed(values, width: width, height: height, rowStride: rowStride),
+                       calibration: depth.cameraCalibrationData)
+        }) else {
+            Self.logger.error("Streamed depth is not Float32 after conversion; frame skipped")
+            return
+        }
+        frameBuffer.append(frame)
+
+        let now = CACurrentMediaTime()
+        guard now - lastDistanceUpdate >= CaptureConfig.distanceUpdateInterval else { return }
+        lastDistanceUpdate = now
+        let median = frame.values.withUnsafeBufferPointer {
+            DistanceEstimator.medianCenterDepth($0, width: frame.width, height: frame.height, rowStride: frame.width)
+        }
         latestMedian.withLock { $0 = median }
         let status = DistanceEstimator.status(forMedian: median)
         DispatchQueue.main.async { self.distance = status }
