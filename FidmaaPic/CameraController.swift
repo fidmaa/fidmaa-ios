@@ -159,6 +159,8 @@ final class CameraController: NSObject {
 
         Self.logger.info("""
             Configured TrueDepth: format \(format.description, privacy: .public), \
+            photo sizes \(format.supportedMaxPhotoDimensions.map { "\($0.width)x\($0.height)" }, privacy: .public), \
+            chosen \(self.photoOutput.maxPhotoDimensions.width)x\(self.photoOutput.maxPhotoDimensions.height), \
             depth \(device.activeDepthDataFormat?.description ?? "none", privacy: .public), \
             mattes \(self.photoOutput.enabledSemanticSegmentationMatteTypes.map(\.rawValue), privacy: .public)
             """)
