@@ -63,8 +63,14 @@ final class CameraController: NSObject {
     /// depthQueue only.
     @ObservationIgnored private var lastDistanceUpdate: CFTimeInterval = 0
     @ObservationIgnored private let latestMedian = OSAllocatedUnfairLock<Float?>(initialState: nil)
+    /// sessionQueue only.
+    @ObservationIgnored private var device: AVCaptureDevice?
     /// main thread only.
     @ObservationIgnored private var isStarting = false
+    /// main thread only. Rotation comes from the device's sensor orientation, not a fixed angle.
+    @ObservationIgnored private weak var previewLayer: AVCaptureVideoPreviewLayer?
+    @ObservationIgnored private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
+    @ObservationIgnored private var previewAngleObservation: NSKeyValueObservation?
 
     private static let logger = Logger(subsystem: "com.fidmaa.pic", category: "camera")
 
@@ -102,15 +108,48 @@ final class CameraController: NSObject {
                     self.isConfigured = true
                 }
                 if !self.session.isRunning { self.session.startRunning() }
+                let device = self.device
                 DispatchQueue.main.async {
                     self.isStarting = false
                     self.state = .running
+                    self.setUpRotation(device: device)
                 }
             } catch {
                 Self.logger.error("Session configuration failed: \(error.localizedDescription, privacy: .public)")
                 DispatchQueue.main.async { self.fail(error) }
             }
         }
+    }
+
+    /// Call on main thread once the preview layer exists.
+    func attach(previewLayer: AVCaptureVideoPreviewLayer) {
+        self.previewLayer = previewLayer
+        sessionQueue.async {
+            let device = self.device
+            DispatchQueue.main.async { self.setUpRotation(device: device) }
+        }
+    }
+
+    /// Main thread. Needs both the configured device and the preview layer.
+    private func setUpRotation(device: AVCaptureDevice?) {
+        guard rotationCoordinator == nil, let device, let previewLayer else { return }
+        let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: previewLayer)
+        rotationCoordinator = coordinator
+        applyPreviewRotation(coordinator.videoRotationAngleForHorizonLevelPreview)
+        previewAngleObservation = coordinator.observe(\.videoRotationAngleForHorizonLevelPreview,
+                                                      options: .new) { [weak self] coordinator, _ in
+            let angle = coordinator.videoRotationAngleForHorizonLevelPreview
+            DispatchQueue.main.async { self?.applyPreviewRotation(angle) }
+        }
+        Self.logger.info("Rotation: preview \(coordinator.videoRotationAngleForHorizonLevelPreview), capture \(coordinator.videoRotationAngleForHorizonLevelCapture)")
+    }
+
+    private func applyPreviewRotation(_ angle: CGFloat) {
+        guard let connection = previewLayer?.connection, connection.isVideoRotationAngleSupported(angle) else {
+            Self.logger.error("Preview rotation \(angle) not supported")
+            return
+        }
+        connection.videoRotationAngle = angle
     }
 
     private func fail(_ error: Error) {
@@ -124,6 +163,7 @@ final class CameraController: NSObject {
         guard let device = AVCaptureDevice.default(.builtInTrueDepthCamera, for: .video, position: .front) else {
             throw CameraError.noTrueDepthCamera
         }
+        self.device = device
         session.beginConfiguration()
         defer { session.commitConfiguration() }
         session.sessionPreset = .photo
@@ -216,8 +256,9 @@ final class CameraController: NSObject {
         isCapturing = true
         lastError = nil
         let distanceAtCapture = latestMedian.withLock { $0 }
+        let rotationAngle = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture
         sessionQueue.async {
-            let settings = self.makePhotoSettings()
+            let settings = self.makePhotoSettings(rotationAngle: rotationAngle)
             let id = settings.uniqueID
             let processor = PhotoCaptureProcessor(distance: distanceAtCapture) { [weak self] outcome in
                 guard let self else { return }
@@ -238,7 +279,7 @@ final class CameraController: NSObject {
         }
     }
 
-    private func makePhotoSettings() -> AVCapturePhotoSettings {
+    private func makePhotoSettings(rotationAngle: CGFloat?) -> AVCapturePhotoSettings {
         let settings = photoOutput.availablePhotoCodecTypes.contains(.hevc)
             ? AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
             : AVCapturePhotoSettings()
@@ -251,8 +292,14 @@ final class CameraController: NSObject {
         settings.embedsPortraitEffectsMatteInPhoto = true
         settings.enabledSemanticSegmentationMatteTypes = photoOutput.enabledSemanticSegmentationMatteTypes
         settings.embedsSemanticSegmentationMattesInPhoto = true
-        if let connection = photoOutput.connection(with: .video), connection.isVideoRotationAngleSupported(90) {
-            connection.videoRotationAngle = 90
+        if let rotationAngle, let connection = photoOutput.connection(with: .video) {
+            if connection.isVideoRotationAngleSupported(rotationAngle) {
+                connection.videoRotationAngle = rotationAngle
+            } else {
+                Self.logger.error("Capture rotation \(rotationAngle) not supported")
+            }
+        } else {
+            Self.logger.error("No rotation coordinator or photo connection; photo keeps sensor orientation")
         }
         return settings
     }

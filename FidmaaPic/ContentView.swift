@@ -14,7 +14,7 @@ struct ContentView: View {
                     .multilineTextAlignment(.center)
                     .padding()
             } else {
-                CameraPreviewView(session: camera.session, isRunning: camera.state == .running)
+                CameraPreviewView(session: camera.session, onLayerReady: camera.attach(previewLayer:))
                     .ignoresSafeArea()
                 VStack(spacing: 12) {
                     DistanceBanner(status: camera.distance)
