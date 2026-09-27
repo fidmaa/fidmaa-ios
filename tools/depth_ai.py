@@ -9,6 +9,7 @@ Depth Pro installed, from a directory containing checkpoints/depth_pro.pt (see R
 
 usage: python tools/depth_ai.py <capture folder> <out.f32>
 """
+
 import argparse
 import json
 import subprocess
@@ -22,12 +23,17 @@ from PIL import Image
 
 TOOLS = Path(__file__).resolve().parent
 # EXIF orientation → PIL transpose that makes the stored pixels upright, and its inverse.
-UPRIGHT = {1: (None, None), 3: (Image.ROTATE_180, Image.ROTATE_180),
-           6: (Image.ROTATE_270, Image.ROTATE_90), 8: (Image.ROTATE_90, Image.ROTATE_270)}
+UPRIGHT = {
+    1: (None, None),
+    3: (Image.ROTATE_180, Image.ROTATE_180),
+    6: (Image.ROTATE_270, Image.ROTATE_90),
+    8: (Image.ROTATE_90, Image.ROTATE_270),
+}
 
 
 def infer_depthpro(image: Image.Image, f_px: float, device: torch.device) -> np.ndarray:
     import depth_pro
+
     model, transform = depth_pro.create_model_and_transforms(device=device, precision=torch.float16)
     model.eval()
     with torch.no_grad():
@@ -53,8 +59,18 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         jpg = Path(tmp) / "photo.jpg"
         photo_w, photo_h = meta["image"]["width"], meta["image"]["height"]
-        subprocess.run(["xcrun", "swift", str(TOOLS / "heic_pixels.swift"), str(args.capture / "photo.heic"),
-                        str(jpg), str(photo_w), str(photo_h)], check=True)
+        subprocess.run(
+            [
+                "xcrun",
+                "swift",
+                str(TOOLS / "heic_pixels.swift"),
+                str(args.capture / "photo.heic"),
+                str(jpg),
+                str(photo_w),
+                str(photo_h),
+            ],
+            check=True,
+        )
         image = Image.open(jpg).convert("RGB")
     if to_upright is not None:
         image = image.transpose(to_upright)
@@ -63,8 +79,10 @@ def main() -> None:
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     depth = infer_depthpro(image, f_px, device)
     finite = depth[np.isfinite(depth)]
-    print(f"Depth Pro: {depth.shape[1]}x{depth.shape[0]}, f_px {f_px:.1f}, "
-          f"range {finite.min():.3f}–{finite.max():.3f} m, device {device}")
+    print(
+        f"Depth Pro: {depth.shape[1]}x{depth.shape[0]}, f_px {f_px:.1f}, "
+        f"range {finite.min():.3f}–{finite.max():.3f} m, device {device}"
+    )
 
     result = Image.fromarray(depth.astype(np.float32), mode="F")
     if back is not None:

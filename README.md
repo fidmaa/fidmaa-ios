@@ -1,4 +1,10 @@
-# Fidmaa Pic
+# Fidmaa Pic (fidmaa-ios)
+
+[![CI](https://github.com/fidmaa/fidmaa-ios/actions/workflows/ci.yml/badge.svg)](https://github.com/fidmaa/fidmaa-ios/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+Część projektu [FIDMAA](https://github.com/fidmaa) (FaceID™ depth-map Airway Assessment).
+Format danych dla innych programów: [`docs/export-format.md`](docs/export-format.md).
 
 Aplikacja na iPhone'a z kamerą TrueDepth (iPhone 17 i nowsze, iOS 26), która przednim aparatem
 robi zdjęcie portretowe i zapisuje surowe dane głębi w metrach (`AVDepthData`, accuracy `absolute`)
@@ -98,3 +104,7 @@ Kamera wymaga fizycznego urządzenia. Checklista ręczna:
 - po zdjęciu: miniatura, „Głębia: ABSOLUTE”, folder w Plikach z 9 plikami;
 - zdjęcie w Zdjęciach ma tryb Portret (możliwa zmiana głębi ostrości);
 - zdjęcie bez twarzy: maski `null` w JSON, reszta plików zapisana.
+
+## Licencja
+
+MIT — zobacz [LICENSE](LICENSE).

@@ -8,3 +8,11 @@ build/
 .build/
 .swiftpm/
 *-3d.html
+__pycache__/
+*.pyc
+.DS_Store
+.env
+.env.*
+*.pem
+*.p12
+*.mobileprovision
