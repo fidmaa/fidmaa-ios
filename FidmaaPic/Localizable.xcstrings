@@ -662,6 +662,16 @@
         }
       }
     },
+    "Trzymaj nieruchomo — stabilizuję": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold still — stabilizing"
+          }
+        }
+      }
+    },
     "Trzymaj stabilniej — uśredniono %lld z %lld klatek": {
       "localizations": {
         "en": {

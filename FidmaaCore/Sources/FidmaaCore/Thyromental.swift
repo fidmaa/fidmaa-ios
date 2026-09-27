@@ -126,6 +126,11 @@ public struct FaceAxis: Sendable {
     public var origin: (x: Double, y: Double)
     public var dir: (x: Double, y: Double)
 
+    public init(origin: (x: Double, y: Double), dir: (x: Double, y: Double)) {
+        self.origin = origin
+        self.dir = dir
+    }
+
     public static func fit(_ points: [(x: Double, y: Double)]) -> FaceAxis {
         precondition(points.count >= 2, "need at least two points")
         let n = Double(points.count)
@@ -173,5 +178,44 @@ public enum ChinProfile {
             if forward > bestForward { bestForward = forward; best = i }
         }
         return best
+    }
+}
+
+/// Center of the "plateau" of near-best candidates: on a flat profile the single best sample jumps with
+/// noise, the middle of all samples within `tolerance` of the best does not.
+public enum Plateau {
+    /// Index nearest to the mean index of all finite scores within `tolerance` of the maximum.
+    public static func center(scores: [Float], tolerance: Float) -> Int? {
+        guard let best = scores.filter(\.isFinite).max() else { return nil }
+        let members = scores.indices.filter { scores[$0].isFinite && scores[$0] >= best - tolerance }
+        let mean = Double(members.reduce(0, +)) / Double(members.count)
+        return Int(mean.rounded())
+    }
+}
+
+/// True once the positions seen in the last `window` seconds stay within `maxSpread` (and there are at
+/// least `minSamples` of them) — results are shown only when the measurement has settled.
+public struct StabilityGate: Sendable {
+    public let window: Double
+    public let maxSpread: Float
+    public let minSamples: Int
+    private var samples: [(time: Double, value: Float)] = []
+
+    public init(window: Double, maxSpread: Float, minSamples: Int) {
+        self.window = window
+        self.maxSpread = maxSpread
+        self.minSamples = minSamples
+    }
+
+    public mutating func add(_ value: Float, at time: Double) -> Bool {
+        samples.append((time, value))
+        samples.removeAll { $0.time < time - window }
+        guard samples.count >= minSamples,
+              let lo = samples.map(\.value).min(), let hi = samples.map(\.value).max() else { return false }
+        return hi - lo <= maxSpread
+    }
+
+    public mutating func reset() {
+        samples.removeAll()
     }
 }

@@ -50,6 +50,10 @@ struct MeasurementState: Equatable {
 /// or the chin–neck depth difference, holding the maximum until reset.
 final class LiveMeasurementEngine {
     static let interval: CFTimeInterval = 1.0 / 15
+    /// Depth is the per-pixel median of this many recent streamed frames (≈2× less noise than one frame).
+    static let depthFrames = 5
+    /// Frames written by one diagnostic long press (≈2 s).
+    static let burstFrames = 30
     /// Lips count as open above this distance (meters).
     static let lipsOpenThreshold: Float = 0.008
 
@@ -57,11 +61,20 @@ final class LiveMeasurementEngine {
 
     private let queue = DispatchQueue(label: "fidmaa.measure", qos: .userInitiated)
     private let busy = OSAllocatedUnfairLock(initialState: false)
-    /// Set by a long press on the TMHT page: the next analyzed frame is written to Documents/diagnostics.
-    private let snapshotRequested = OSAllocatedUnfairLock(initialState: false)
+    /// Frames still to be written by a diagnostic burst (long press on the TMHT page).
+    private let burstRemaining = OSAllocatedUnfairLock(initialState: 0)
+    // queue only
+    private var burstFolder: URL?
+    private var burstIndex = 0
+    private var smoothed: (axis: FaceAxis, menton: Double, lipBottom: Double)?
+    private var lastFaceTime: CFTimeInterval = 0
+    private var pogonionGate = StabilityGate(window: 1.0, maxSpread: 0.003, minSamples: 8)
+    private var neckGate = StabilityGate(window: 1.0, maxSpread: 0.003, minSamples: 8)
+    /// Axis/landmark smoothing factor per analyzed frame (15 Hz).
+    private static let smoothing = 0.3
 
     func requestDiagnosticSnapshot() {
-        snapshotRequested.withLock { $0 = true }
+        burstRemaining.withLock { $0 = Self.burstFrames }
     }
     /// Caller queue only (the capture synchronizer queue).
     private var lastRun: CFTimeInterval = 0
@@ -77,8 +90,8 @@ final class LiveMeasurementEngine {
 
     /// Called for every synchronized frame while a measurement page is shown; throttled and dropped
     /// while the previous frame is still being analyzed.
-    func process(pixelBuffer: CVPixelBuffer, depth: DepthFrame, mode: MeasurementMode, rotationDegrees: Int,
-                 gravity: (x: Double, y: Double, z: Double)?) {
+    func process(pixelBuffer: CVPixelBuffer, depth: DepthFrame, recentDepth: [DepthFrame], mode: MeasurementMode,
+                 rotationDegrees: Int, gravity: (x: Double, y: Double, z: Double)?) {
         let now = CACurrentMediaTime()
         guard mode != .none, now - lastRun >= Self.interval else { return }
         guard busy.withLock({ wasBusy in
@@ -89,7 +102,7 @@ final class LiveMeasurementEngine {
         lastRun = now
         queue.async {
             defer { self.busy.withLock { $0 = false } }
-            var state = self.analyze(pixelBuffer: pixelBuffer, depth: depth, mode: mode,
+            var state = self.analyze(pixelBuffer: pixelBuffer, depth: depth, recentDepth: recentDepth, mode: mode,
                                      rotationDegrees: rotationDegrees, gravity: gravity, time: now)
             // Held values are read after the measurement updated them.
             self.fillHeld(&state)
@@ -129,7 +142,7 @@ final class LiveMeasurementEngine {
 
     // MARK: - Analysis (queue)
 
-    private func analyze(pixelBuffer: CVPixelBuffer, depth: DepthFrame, mode: MeasurementMode,
+    private func analyze(pixelBuffer: CVPixelBuffer, depth: DepthFrame, recentDepth: [DepthFrame], mode: MeasurementMode,
                          rotationDegrees: Int, gravity: (x: Double, y: Double, z: Double)?,
                          time: CFTimeInterval) -> MeasurementState {
         var state = MeasurementState()
@@ -151,7 +164,8 @@ final class LiveMeasurementEngine {
             state.status = String(localized: "Nie widzę twarzy")
             return state
         }
-        let frame = Frame(pixelBuffer: pixelBuffer, depth: depth, intrinsics: intrinsics, rotation: rotationDegrees)
+        let frame = Frame(pixelBuffer: pixelBuffer, depth: depth, intrinsics: intrinsics, rotation: rotationDegrees,
+                          recentDepth: recentDepth.filter { $0.width == depth.width && $0.height == depth.height })
         switch mode {
         case .mouth: measureMouth(landmarks, frame: frame, state: &state)
         case .neck: measureThyromental(landmarks, frame: frame, gravity: gravity, time: time, state: &state)
@@ -231,12 +245,37 @@ final class LiveMeasurementEngine {
         // Work in upright depth-grid pixels.
         let size = frame.depthUprightSize
         func px(_ p: CGPoint) -> (x: Double, y: Double) { (Double(p.x) * size.width, Double(p.y) * size.height) }
-        let axis = FaceAxis.fit(median.map(px))
+        let fitted = FaceAxis.fit(median.map(px))
+        let rawMenton = fitted.along(px(median[median.count - 1]))
+        let rawLipBottom = outerLips.map { fitted.along(px($0)) }.max() ?? 0
+        // Vision's landmarks jitter by a few pixels per frame: smooth the axis and the chin in time,
+        // but start over after a jump (face moved) or a gap.
+        var axis = fitted
+        var menton = rawMenton
+        var lipBottom = rawLipBottom
+        if let previous = smoothed, time - lastFaceTime < 0.5,
+           hypot(previous.axis.origin.x - fitted.origin.x, previous.axis.origin.y - fitted.origin.y) < 20,
+           abs(previous.menton - rawMenton) < 20 {
+            let a = Self.smoothing
+            let ox = previous.axis.origin.x + a * (fitted.origin.x - previous.axis.origin.x)
+            let oy = previous.axis.origin.y + a * (fitted.origin.y - previous.axis.origin.y)
+            var dx = previous.axis.dir.x + a * (fitted.dir.x - previous.axis.dir.x)
+            var dy = previous.axis.dir.y + a * (fitted.dir.y - previous.axis.dir.y)
+            let n = hypot(dx, dy)
+            dx /= n
+            dy /= n
+            axis = FaceAxis(origin: (ox, oy), dir: (dx, dy))
+            menton = previous.menton + a * (rawMenton - previous.menton)
+            lipBottom = previous.lipBottom + a * (rawLipBottom - previous.lipBottom)
+        } else {
+            pogonionGate.reset()
+            neckGate.reset()
+        }
+        smoothed = (axis, menton, lipBottom)
+        lastFaceTime = time
         let across = contour.map { axis.across(px($0)) }
         let faceWidth = (across.max() ?? 0) - (across.min() ?? 0)
         let halfBand = max(2, 0.075 * faceWidth)
-        let menton = axis.along(px(median[median.count - 1]))
-        let lipBottom = outerLips.map { axis.along(px($0)) }.max() ?? 0
         state.outline = median.map(frame.sensor)
         guard menton > lipBottom else {
             state.status = String(localized: "Nie widzę brody")
@@ -275,10 +314,14 @@ final class LiveMeasurementEngine {
         let pixelsPerMeter = focal / Double(mentonDepth)
         // Pogonion: between a quarter of the way from the lower lip to the menton, and the menton.
         let chinSamples = Array(stride(from: lipBottom + 0.25 * (menton - lipBottom), through: menton, by: 1))
-        let chinDepths = chinSamples.map { band($0, \.z) ?? .nan }
-        guard let pogIndex = ChinProfile.pogonion(
-            along: chinSamples.map { Float($0 / pixelsPerMeter) }, depths: chinDepths,
-            nasion: (along: 0, depth: nasionDepth), menton: (along: Float(menton / pixelsPerMeter), depth: mentonDepth)),
+        // Forward distance of each profile sample from the nasion–menton line; the chin is flat near its
+        // front, so take the middle of all samples within 1 mm of the best rather than the noisy winner.
+        let forward: [Float] = chinSamples.map { s in
+            guard let z = band(s, \.z) else { return .nan }
+            return nasionDepth + (mentonDepth - nasionDepth) * Float(s / menton) - z
+        }
+        guard let best = forward.filter(\.isFinite).max(), best > 0,
+              let pogIndex = Plateau.center(scores: forward, tolerance: 0.001),
               let pogonion = band(chinSamples[pogIndex], { $0.dot(h) }) else {
             state.status = String(localized: "Brak głębi na brodzie")
             return
@@ -287,12 +330,25 @@ final class LiveMeasurementEngine {
         state.from = frame.sensor(upright(pogonionS, 0))
 
         var diagnostic: [String: Any] = [:]
-        let snapshot = snapshotRequested.withLock { requested in
-            defer { requested = false }
-            return requested
+        let snapshot = burstRemaining.withLock { remaining in
+            guard remaining > 0 else { return false }
+            remaining -= 1
+            return true
         }
         defer {
-            if snapshot { Self.writeSnapshot(diagnostic, frame: frame) }
+            if snapshot {
+                if burstFolder == nil || burstIndex >= Self.burstFrames {
+                    burstFolder = Self.newDiagnosticsFolder()
+                    burstIndex = 0
+                }
+                if let folder = burstFolder {
+                    diagnostic["time"] = time
+                    Self.writeSnapshot(diagnostic, frame: frame,
+                                       to: folder.appendingPathComponent(String(format: "%02d", burstIndex)))
+                }
+                burstIndex += 1
+                if burstRemaining.withLock({ $0 }) == 0 { burstFolder = nil }
+            }
         }
 
         // Neck profile along the axis below the menton, relative to the pogonion.
@@ -328,7 +384,6 @@ final class LiveMeasurementEngine {
         }
         state.to = frame.sensor(upright(menton + Double(index), 0))
         state.kind = result.thyroid != nil ? .thyroid : .recess
-        state.current = values[index]
 
         // The definition requires a closed mouth.
         if let inner = landmarks.innerLips.map({ frame.upright($0) }), inner.count >= 4 {
@@ -339,6 +394,14 @@ final class LiveMeasurementEngine {
                 return
             }
         }
+        // Show a result only once both points have settled (≤ 3 mm movement over ~1 s).
+        let chinStable = pogonionGate.add(Float(pogonionS / pixelsPerMeter), at: time)
+        let neckStable = neckGate.add(Float((menton + Double(index)) / pixelsPerMeter), at: time)
+        guard chinStable && neckStable else {
+            state.status = String(localized: "Trzymaj nieruchomo — stabilizuję")
+            return
+        }
+        state.current = values[index]
         if result.thyroid != nil {
             steadyThyroid = thyroidMedian.add(values[index], at: time)
         } else {
@@ -346,22 +409,31 @@ final class LiveMeasurementEngine {
         }
     }
 
-    /// Writes diag.json, depth.f32 and frame.jpg (sensor orientation) to Documents/diagnostics/<time>/.
-    private static func writeSnapshot(_ diagnostic: [String: Any], frame: Frame) {
+    /// Documents/diagnostics/<time>/ for one burst.
+    private static func newDiagnosticsFolder() -> URL? {
         do {
             let documents = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask,
                                                         appropriateFor: nil, create: true)
             let formatter = DateFormatter()
             formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.dateFormat = "yyyyMMdd-HHmmss-SSS"
-            let folder = documents.appendingPathComponent("diagnostics", isDirectory: true)
+            return documents.appendingPathComponent("diagnostics", isDirectory: true)
                 .appendingPathComponent(formatter.string(from: Date()), isDirectory: true)
+        } catch {
+            logger.error("No Documents folder for diagnostics: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    /// Writes diag.json, depth.f32 (newest frame) and frame.jpg (sensor orientation) to `folder`.
+    private static func writeSnapshot(_ diagnostic: [String: Any], frame: Frame, to folder: URL) {
+        do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             try JSONSerialization.data(withJSONObject: diagnostic, options: [.prettyPrinted, .sortedKeys])
                 .write(to: folder.appendingPathComponent("diag.json"))
             try DepthRaw.littleEndianData(frames: [frame.depth.values]).write(to: folder.appendingPathComponent("depth.f32"))
             try frame.jpeg().write(to: folder.appendingPathComponent("frame.jpg"))
-            logger.info("Diagnostic snapshot written to \(folder.lastPathComponent, privacy: .public)")
+            logger.info("Diagnostic snapshot written to \(folder.path, privacy: .public)")
         } catch {
             logger.error("Writing diagnostic snapshot failed: \(error.localizedDescription, privacy: .public)")
         }
@@ -400,6 +472,8 @@ private struct Frame {
     let intrinsics: Intrinsics
     /// Clockwise degrees that make the sensor frame upright.
     let rotation: Int
+    /// Recent depth frames (same size, newest last) whose per-pixel median replaces the single frame.
+    let recentDepth: [DepthFrame]
 
     var bufferWidth: Int { CVPixelBufferGetWidth(pixelBuffer) }
     var bufferHeight: Int { CVPixelBufferGetHeight(pixelBuffer) }
@@ -433,7 +507,17 @@ private struct Frame {
     func depthValue(_ sensor: CGPoint) -> Float {
         let x = Int(sensor.x * Double(depth.width)), y = Int(sensor.y * Double(depth.height))
         guard x >= 0, y >= 0, x < depth.width, y < depth.height else { return .nan }
-        return depth.values[y * depth.width + x]
+        return depthAt(x: x, y: y)
+    }
+
+    /// Median over the recent frames of the valid depth at a depth-grid pixel (NaN if none is valid).
+    func depthAt(x: Int, y: Int) -> Float {
+        let i = y * depth.width + x
+        guard recentDepth.count > 1 else { return depth.values[i] }
+        var values = recentDepth.map { $0.values[i] }.filter { $0.isFinite && $0 > 0 }
+        guard !values.isEmpty else { return .nan }
+        values.sort()
+        return values[values.count / 2]
     }
 
     /// Median of valid depth in 3×3 windows around the given points.
@@ -445,7 +529,7 @@ private struct Frame {
                 for dx in -1...1 {
                     let xx = x + dx, yy = y + dy
                     guard xx >= 0, yy >= 0, xx < depth.width, yy < depth.height else { continue }
-                    let v = depth.values[yy * depth.width + xx]
+                    let v = depthAt(x: xx, y: yy)
                     if v.isFinite && v > 0 { values.append(v) }
                 }
             }

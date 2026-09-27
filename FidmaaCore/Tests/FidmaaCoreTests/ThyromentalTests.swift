@@ -118,3 +118,27 @@ private let steps: [Float] = (0..<25).map { Float($0) * 0.005 }
     // this frontal profile keeps coming forward (collar) — no receding after a bump → no thyroid
     #expect(r.thyroid == nil)
 }
+
+@Test func plateauCenterOfNearlyEqualCandidates() {
+    // flat chin: three samples within 1 mm of the best → the middle of them, not the noisy winner
+    let scores: [Float] = [0.001, 0.0079, 0.0081, 0.0080, 0.004]
+    #expect(Plateau.center(scores: scores, tolerance: 0.001) == 2)
+    let skewed: [Float] = [0.0080, 0.0085, 0.0079, 0.0020, 0.0084]
+    #expect(Plateau.center(scores: skewed, tolerance: 0.001) == 2)   // mean of 0,1,2,4 ≈ 1.75 → 2
+    #expect(Plateau.center(scores: [.nan, .nan], tolerance: 0.001) == nil)
+}
+
+@Test func stabilityGateNeedsSteadyPositions() {
+    var gate = StabilityGate(window: 1.0, maxSpread: 0.003, minSamples: 5)
+    for i in 0..<4 {
+        let early = gate.add(0.050 + Float(i) * 0.0005, at: Double(i) * 0.1)
+        #expect(!early)                                  // too few samples yet
+    }
+    let steady = gate.add(0.051, at: 0.4)                // 5 samples, spread 1.5 mm
+    #expect(steady)
+    let jumped = gate.add(0.060, at: 0.5)                // jump of 10 mm
+    #expect(!jumped)
+    gate.reset()
+    let afterReset = gate.add(0.05, at: 0.6)
+    #expect(!afterReset)
+}

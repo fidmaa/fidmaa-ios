@@ -449,7 +449,8 @@ extension CameraController: AVCaptureDepthDataOutputDelegate, AVCaptureDataOutpu
               let video = collection.synchronizedData(for: videoOutput) as? AVCaptureSynchronizedSampleBufferData,
               !video.sampleBufferWasDropped,
               let pixelBuffer = CMSampleBufferGetImageBuffer(video.sampleBuffer) else { return }
-        measurementEngine.process(pixelBuffer: pixelBuffer, depth: frame, mode: mode,
+        measurementEngine.process(pixelBuffer: pixelBuffer, depth: frame,
+                                  recentDepth: frameBuffer.snapshot(count: LiveMeasurementEngine.depthFrames), mode: mode,
                                   rotationDegrees: displayRotationLock.withLock { $0 },
                                   gravity: motion.latestGravity())
     }
