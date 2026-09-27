@@ -267,6 +267,7 @@ final class CameraController: NSObject {
                 // Preview-sized BGRA frames for Vision, delivered together with depth.
                 session.addOutput(videoOutput)
                 videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+                videoOutput.automaticallyConfiguresOutputBufferDimensions = false  // required before the next line
                 videoOutput.deliversPreviewSizedOutputBuffers = true
                 videoOutput.alwaysDiscardsLateVideoFrames = true
                 if let connection = videoOutput.connection(with: .video) {
