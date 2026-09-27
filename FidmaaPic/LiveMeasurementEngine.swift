@@ -68,8 +68,12 @@ final class LiveMeasurementEngine {
     private var burstIndex = 0
     private var smoothed: (axis: FaceAxis, menton: Double, lipBottom: Double)?
     private var lastFaceTime: CFTimeInterval = 0
-    private var pogonionGate = StabilityGate(window: 1.0, maxSpread: 0.003, minSamples: 8)
-    private var neckGate = StabilityGate(window: 1.0, maxSpread: 0.003, minSamples: 8)
+    private var pogonionGate = StabilityGate(window: 1.0, maxSpread: 0.004, minSamples: 8)
+    private var neckGate = StabilityGate(window: 1.0, maxSpread: 0.004, minSamples: 8)
+    /// ~1 s of chin/neck profiles aligned to the menton; points are chosen on the average.
+    private var chinForward = ProfileAverage(capacity: 15)
+    private var chinProjection = ProfileAverage(capacity: 15)
+    private var neckProjection = ProfileAverage(capacity: 15)
     /// Axis/landmark smoothing factor per analyzed frame (15 Hz).
     private static let smoothing = 0.3
 
@@ -270,6 +274,9 @@ final class LiveMeasurementEngine {
         } else {
             pogonionGate.reset()
             neckGate.reset()
+            chinForward.reset()
+            chinProjection.reset()
+            neckProjection.reset()
         }
         smoothed = (axis, menton, lipBottom)
         lastFaceTime = time
@@ -312,21 +319,29 @@ final class LiveMeasurementEngine {
         }
         let focal = Double(frame.isSideways ? frame.intrinsics.fx : frame.intrinsics.fy)
         let pixelsPerMeter = focal / Double(mentonDepth)
-        // Pogonion: between a quarter of the way from the lower lip to the menton, and the menton.
-        let chinSamples = Array(stride(from: lipBottom + 0.25 * (menton - lipBottom), through: menton, by: 1))
-        // Forward distance of each profile sample from the nasion–menton line; the chin is flat near its
-        // front, so take the middle of all samples within 1 mm of the best rather than the noisy winner.
-        let forward: [Float] = chinSamples.map { s in
-            guard let z = band(s, \.z) else { return .nan }
-            return nasionDepth + (mentonDepth - nasionDepth) * Float(s / menton) - z
+        // Profiles are indexed by pixels from the menton and averaged over ~1 s; points are chosen on the
+        // average (single frames are too noisy for a flat chin and a few-mm thyroid bump).
+        // Pogonion: between a quarter of the way from the lower lip to the menton, and the menton —
+        // the middle of the samples within 1 mm of the most forward one (relative to the nasion–menton line).
+        let firstChin = Int((lipBottom + 0.25 * (menton - lipBottom) - menton).rounded(.up))
+        let chinKeys = Array(min(firstChin, 0)...0)
+        var forwardNow: [Int: Float] = [:]
+        var chinNow: [Int: Float] = [:]
+        for k in chinKeys {
+            let s = menton + Double(k)
+            if let z = band(s, \.z) { forwardNow[k] = nasionDepth + (mentonDepth - nasionDepth) * Float(s / menton) - z }
+            if let v = band(s, { $0.dot(h) }) { chinNow[k] = v }
         }
+        chinForward.add(forwardNow)
+        chinProjection.add(chinNow)
+        let forward = chinKeys.map { chinForward.mean(at: $0) ?? .nan }
         guard let best = forward.filter(\.isFinite).max(), best > 0,
               let pogIndex = Plateau.center(scores: forward, tolerance: 0.001),
-              let pogonion = band(chinSamples[pogIndex], { $0.dot(h) }) else {
+              let pogonion = chinProjection.mean(at: chinKeys[pogIndex]) else {
             state.status = String(localized: "Brak głębi na brodzie")
             return
         }
-        let pogonionS = chinSamples[pogIndex]
+        let pogonionS = menton + Double(chinKeys[pogIndex])
         state.from = frame.sensor(upright(pogonionS, 0))
 
         var diagnostic: [String: Any] = [:]
@@ -355,9 +370,14 @@ final class LiveMeasurementEngine {
         let steps = Int(Double(ThyromentalProfile.thyroidMaxOffset) * pixelsPerMeter) + 1
         var offsets: [Float] = []
         var values: [Float] = []
+        var neckNow: [Int: Float] = [:]
+        for k in 0...steps {
+            if let v = band(menton + Double(k), { $0.dot(h) }) { neckNow[k] = v }
+        }
+        neckProjection.add(neckNow)
         for k in 0...steps {
             offsets.append(Float(Double(k) / pixelsPerMeter))
-            values.append(band(menton + Double(k), { $0.dot(h) }).map { $0 - pogonion } ?? .nan)
+            values.append(neckProjection.mean(at: k).map { $0 - pogonion } ?? .nan)
         }
         let result = ThyromentalProfile.analyze(offsetsMeters: offsets, values: values)
         if snapshot {

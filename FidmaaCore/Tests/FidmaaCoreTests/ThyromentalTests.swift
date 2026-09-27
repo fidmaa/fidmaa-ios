@@ -142,3 +142,18 @@ private let steps: [Float] = (0..<25).map { Float($0) * 0.005 }
     let afterReset = gate.add(0.05, at: 0.6)
     #expect(!afterReset)
 }
+
+@Test func profileAverageAlignsByOffsetAndIgnoresHoles() {
+    var avg = ProfileAverage(capacity: 3)
+    avg.add([0: 1, 1: 2, 2: .nan])
+    avg.add([0: 3, 1: 4, 2: 6])
+    #expect(avg.mean(at: 0) == 2)
+    #expect(avg.mean(at: 1) == 3)
+    #expect(avg.mean(at: 2) == nil)          // valid in only 1 of 2 profiles: needs more than half
+    avg.add([0: 5])
+    avg.add([0: 7])                           // capacity 3 → the first profile drops out
+    #expect(avg.mean(at: 0) == 5)
+    #expect(avg.count == 3)
+    avg.reset()
+    #expect(avg.mean(at: 0) == nil)
+}

@@ -219,3 +219,33 @@ public struct StabilityGate: Sendable {
         samples.removeAll()
     }
 }
+
+/// Running average of profiles keyed by integer offset (pixels from the menton), over the last
+/// `capacity` frames. Averaging the profiles before choosing points is what keeps the chosen points
+/// still: single frames are too noisy for flat chins and small thyroid bumps.
+public struct ProfileAverage: Sendable {
+    public let capacity: Int
+    private var profiles: [[Int: Float]] = []
+
+    public init(capacity: Int) {
+        self.capacity = capacity
+    }
+
+    public var count: Int { profiles.count }
+
+    public mutating func add(_ profile: [Int: Float]) {
+        profiles.append(profile)
+        if profiles.count > capacity { profiles.removeFirst(profiles.count - capacity) }
+    }
+
+    /// Mean of the finite values at `offset`, if more than half of the stored profiles have one.
+    public func mean(at offset: Int) -> Float? {
+        let values = profiles.compactMap { $0[offset] }.filter(\.isFinite)
+        guard !values.isEmpty, values.count * 2 > profiles.count else { return nil }
+        return values.reduce(0, +) / Float(values.count)
+    }
+
+    public mutating func reset() {
+        profiles.removeAll()
+    }
+}
