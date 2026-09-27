@@ -301,6 +301,7 @@ final class CameraController: NSObject {
     func capturePhoto(averagingFrames: Int, filteredPhotoDepth: Bool) {
         guard state == .running, !isCapturing else { return }
         isCapturing = true
+        CaptureFeedback.shutter()
         lastError = nil
         let distanceAtCapture = latestMedian.withLock { $0 }
         let stackFrames = frameBuffer.snapshot(count: averagingFrames)
@@ -311,16 +312,20 @@ final class CameraController: NSObject {
         sessionQueue.async {
             let settings = self.makePhotoSettings(rotationAngle: rotationAngle, filteredDepth: filteredPhotoDepth)
             let id = settings.uniqueID
-            let processor = PhotoCaptureProcessor(distance: distanceAtCapture, stack: stack) { [weak self] outcome in
+            let processor = PhotoCaptureProcessor(distance: distanceAtCapture, stack: stack, onExposureEnded: {
+                DispatchQueue.main.async { CaptureFeedback.exposureEnded() }
+            }) { [weak self] outcome in
                 guard let self else { return }
                 DispatchQueue.main.async {
                     self.isCapturing = false
                     switch outcome {
                     case .success(let result):
                         self.lastResult = result
+                        CaptureFeedback.saved(hasWarnings: !result.warnings.isEmpty)
                     case .failure(let error):
                         Self.logger.error("Capture failed: \(error.localizedDescription, privacy: .public)")
                         self.lastError = error.localizedDescription
+                        CaptureFeedback.failed()
                     }
                 }
                 self.sessionQueue.async { self.processors[id] = nil }

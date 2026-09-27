@@ -6,15 +6,22 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
     private let distance: Float?
     private let stack: StackCapture
     private let completion: (Result<CaptureResult, Error>) -> Void
+    private let onExposureEnded: () -> Void
     /// Set when a photo was handed to the exporter; the exporter then owns the completion.
     private var didReceivePhoto = false
 
     private static let logger = Logger(subsystem: "com.fidmaa.pic", category: "capture")
 
-    init(distance: Float?, stack: StackCapture, completion: @escaping (Result<CaptureResult, Error>) -> Void) {
+    init(distance: Float?, stack: StackCapture, onExposureEnded: @escaping () -> Void,
+         completion: @escaping (Result<CaptureResult, Error>) -> Void) {
+        self.onExposureEnded = onExposureEnded
         self.distance = distance
         self.stack = stack
         self.completion = completion
+    }
+
+    func photoOutput(_ output: AVCapturePhotoOutput, didCapturePhotoFor resolvedSettings: AVCaptureResolvedPhotoSettings) {
+        onExposureEnded()
     }
 
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
