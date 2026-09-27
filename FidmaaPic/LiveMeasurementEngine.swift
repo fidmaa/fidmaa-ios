@@ -58,6 +58,12 @@ final class LiveMeasurementEngine {
 
     private let queue = DispatchQueue(label: "fidmaa.measure", qos: .userInitiated)
     private let busy = OSAllocatedUnfairLock(initialState: false)
+    /// Set by a long press on the TMHT page: the next analyzed frame is written to Documents/diagnostics.
+    private let snapshotRequested = OSAllocatedUnfairLock(initialState: false)
+
+    func requestDiagnosticSnapshot() {
+        snapshotRequested.withLock { $0 = true }
+    }
     /// Caller queue only (the capture synchronizer queue).
     private var lastRun: CFTimeInterval = 0
     // queue only
@@ -274,6 +280,33 @@ final class LiveMeasurementEngine {
             }
         }
         state.outline = [upright(0, 0), upright(simd_dot(noseTip - eyes, dir), 0)].map(frame.sensor)
+        var diagnostic: [String: Any] = [:]
+        let snapshot = snapshotRequested.withLock { requested in
+            defer { requested = false }
+            return requested
+        }
+        if snapshot {
+            func pts(_ r: VNFaceLandmarkRegion2D?) -> [[Double]] {
+                r.map { frame.upright($0).map { [Double($0.x), Double($0.y)] } } ?? []
+            }
+            diagnostic = [
+                "rotation": frame.rotation, "depthUprightSize": [size.width, size.height],
+                "intrinsics": [frame.intrinsics.fx, frame.intrinsics.fy, frame.intrinsics.cx, frame.intrinsics.cy],
+                "gravity": gravity.map { [$0.x, $0.y, $0.z] } ?? [], "h": [h.x, h.y, h.z],
+                "eyes": [eyes.x, eyes.y], "noseTip": [noseTip.x, noseTip.y], "dir": [dir.x, dir.y],
+                "faceWidth": faceWidth, "halfBand": halfBand, "lipBottom": lipBottom, "contourBottom": contourBottom,
+                "chin": chin.map { [$0.s, $0.l, Double($0.value), Double($0.depth)] } ?? [],
+                "landmarks": [
+                    "leftEye": pts(landmarks.leftEye), "rightEye": pts(landmarks.rightEye),
+                    "noseCrest": pts(landmarks.noseCrest), "nose": pts(landmarks.nose),
+                    "outerLips": pts(landmarks.outerLips), "innerLips": pts(landmarks.innerLips),
+                    "faceContour": pts(landmarks.faceContour), "medianLine": pts(landmarks.medianLine),
+                ],
+            ]
+        }
+        defer {
+            if snapshot { Self.writeSnapshot(diagnostic, frame: frame) }
+        }
         guard let chin else {
             state.status = String(localized: "Brak głębi na brodzie")
             return
@@ -291,6 +324,11 @@ final class LiveMeasurementEngine {
             values.append(bandMedian(chin.s + Double(k)).map { $0 - chin.value } ?? .nan)
         }
         let result = ThyromentalProfile.analyze(offsetsMeters: offsets, values: values)
+        if snapshot {
+            diagnostic["profile"] = ["offsets": offsets.map(Double.init),
+                                     "values": values.map { $0.isFinite ? Double($0) : -1 },
+                                     "recess": result.recess ?? -1, "thyroid": result.thyroid ?? -1]
+        }
         guard let index = result.thyroid ?? result.recess else {
             state.status = String(localized: "Nie widzę szyi — odchyl głowę lub opuść telefon")
             return
@@ -312,6 +350,27 @@ final class LiveMeasurementEngine {
             steadyThyroid = thyroidMedian.add(values[index], at: time)
         } else {
             steadyRecess = recessMedian.add(values[index], at: time)
+        }
+    }
+
+    /// Writes diag.json, depth.f32 and frame.jpg (sensor orientation) to Documents/diagnostics/<time>/.
+    private static func writeSnapshot(_ diagnostic: [String: Any], frame: Frame) {
+        do {
+            let documents = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask,
+                                                        appropriateFor: nil, create: true)
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "yyyyMMdd-HHmmss-SSS"
+            let folder = documents.appendingPathComponent("diagnostics", isDirectory: true)
+                .appendingPathComponent(formatter.string(from: Date()), isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try JSONSerialization.data(withJSONObject: diagnostic, options: [.prettyPrinted, .sortedKeys])
+                .write(to: folder.appendingPathComponent("diag.json"))
+            try DepthRaw.littleEndianData(frames: [frame.depth.values]).write(to: folder.appendingPathComponent("depth.f32"))
+            try frame.jpeg().write(to: folder.appendingPathComponent("frame.jpg"))
+            logger.info("Diagnostic snapshot written to \(folder.lastPathComponent, privacy: .public)")
+        } catch {
+            logger.error("Writing diagnostic snapshot failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -401,6 +460,26 @@ private struct Frame {
         guard !values.isEmpty else { return nil }
         values.sort()
         return values[values.count / 2]
+    }
+
+    /// The BGRA video frame as JPEG (sensor orientation).
+    func jpeg() throws -> Data {
+        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+        let data = NSMutableData()
+        guard let base = CVPixelBufferGetBaseAddress(pixelBuffer),
+              let context = CGContext(data: base, width: bufferWidth, height: bufferHeight, bitsPerComponent: 8,
+                                      bytesPerRow: CVPixelBufferGetBytesPerRow(pixelBuffer),
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGBitmapInfo.byteOrder32Little.rawValue
+                                          | CGImageAlphaInfo.noneSkipFirst.rawValue),
+              let image = context.makeImage(),
+              let destination = CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil) else {
+            throw CaptureExportError.noPhotoData
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { throw CaptureExportError.noPhotoData }
+        return data as Data
     }
 
     /// Luma and saturation of the BGRA video pixel at a sensor-normalized point.

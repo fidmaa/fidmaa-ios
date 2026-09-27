@@ -21,6 +21,10 @@ struct MeasurementPage: View {
         .ignoresSafeArea()
         .contentShape(Rectangle())
         .onTapGesture { camera.resetMeasurement() }
+        .onLongPressGesture(minimumDuration: 0.6) {
+            camera.requestDiagnosticSnapshot()
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        }
     }
 
     private var overlay: some View {

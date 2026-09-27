@@ -153,6 +153,10 @@ final class CameraController: NSObject {
         measurementEngine.reset(measurementMode)
     }
 
+    func requestDiagnosticSnapshot() {
+        measurementEngine.requestDiagnosticSnapshot()
+    }
+
     /// Sensor-normalized point → screen point, with exactly the transform of the (user-verified) depth view.
     func screenPoint(fromSensor point: CGPoint, screen: CGSize) -> CGPoint {
         let p = ScreenMapping.screenPoint(sensor: (x: Double(point.x), y: Double(point.y)),
