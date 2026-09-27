@@ -30,6 +30,11 @@ struct MeasurementState: Equatable {
     var from: CGPoint?
     var to: CGPoint?
     var outline: [CGPoint] = []
+    /// Mouth profile samples and whether each was classified as tooth (drawn for troubleshooting).
+    var profile: [CGPoint] = []
+    var profileTooth: [Bool] = []
+    /// Luma range along the mouth profile (troubleshooting).
+    var profileLuma: ClosedRange<Float>?
     /// Small diagnostic line (rotation, frame sizes) for remote troubleshooting.
     var debug: String?
 }
@@ -74,8 +79,9 @@ final class LiveMeasurementEngine {
             state.maxTeeth = self.teeth.maximum
             state.maxLips = self.lips.maximum
             state.maxNeck = self.neck.maximum
-            state.debug = "obrót \(rotationDegrees)° · obraz \(CVPixelBufferGetWidth(pixelBuffer))×"
-                + "\(CVPixelBufferGetHeight(pixelBuffer)) · głębia \(depth.width)×\(depth.height)"
+            state.debug = "\(rotationDegrees)° · \(CVPixelBufferGetWidth(pixelBuffer))×\(CVPixelBufferGetHeight(pixelBuffer))"
+                + " · \(depth.width)×\(depth.height)"
+                + (state.profileLuma.map { String(format: " · luma %.2f–%.2f", $0.lowerBound, $0.upperBound) } ?? "")
             self.onUpdate?(state)
         }
     }
@@ -105,7 +111,7 @@ final class LiveMeasurementEngine {
                          rotationDegrees: Int) -> MeasurementState {
         var state = MeasurementState()
         guard let intrinsics = Self.intrinsics(depth) else {
-            state.status = "Brak kalibracji kamery"
+            state.status = String(localized: "Brak kalibracji kamery")
             return state
         }
         let request = VNDetectFaceLandmarksRequest()
@@ -114,12 +120,12 @@ final class LiveMeasurementEngine {
                 .perform([request])
         } catch {
             Self.logger.error("Vision failed: \(error.localizedDescription, privacy: .public)")
-            state.status = "Błąd wykrywania twarzy"
+            state.status = String(localized: "Błąd wykrywania twarzy")
             return state
         }
         guard let face = request.results?.max(by: { Self.area($0) < Self.area($1) }),
               let landmarks = face.landmarks else {
-            state.status = "Nie widzę twarzy"
+            state.status = String(localized: "Nie widzę twarzy")
             return state
         }
         let frame = Frame(pixelBuffer: pixelBuffer, depth: depth, intrinsics: intrinsics, rotation: rotationDegrees)
@@ -133,7 +139,7 @@ final class LiveMeasurementEngine {
 
     private func measureMouth(_ landmarks: VNFaceLandmarks2D, frame: Frame, state: inout MeasurementState) {
         guard let inner = landmarks.innerLips.map({ frame.upright($0) }), inner.count >= 4 else {
-            state.status = "Nie widzę ust"
+            state.status = String(localized: "Nie widzę ust")
             return
         }
         state.outline = inner.map(frame.sensor)
@@ -142,7 +148,7 @@ final class LiveMeasurementEngine {
         guard let upper = inner.filter({ $0.y < cy }).min(by: { abs($0.x - cx) < abs($1.x - cx) }),
               let lower = inner.filter({ $0.y >= cy }).min(by: { abs($0.x - cx) < abs($1.x - cx) }),
               let planeDepth = frame.medianDepth(around: inner.map(frame.sensor)) else {
-            state.status = "Nie widzę ust"
+            state.status = String(localized: "Nie widzę ust")
             return
         }
         // Pixel profile from the upper to the lower inner lip, in the video buffer.
@@ -152,6 +158,9 @@ final class LiveMeasurementEngine {
             return CGPoint(x: upper.x + (lower.x - upper.x) * t, y: upper.y + (lower.y - upper.y) * t)
         }
         let profile = path.map { frame.sample(frame.sensor($0)) }
+        state.profile = path.map(frame.sensor)
+        state.profileTooth = IncisorDetector.classify(profile)
+        if let lo = profile.map(\.luma).min(), let hi = profile.map(\.luma).max() { state.profileLuma = lo...hi }
         let a: CGPoint
         let b: CGPoint
         if let edges = IncisorDetector.edges(profile) {
@@ -168,7 +177,7 @@ final class LiveMeasurementEngine {
         state.from = a
         state.to = b
         if state.kind == .lips && distance < Self.lipsOpenThreshold {
-            state.status = "Usta zamknięte"
+            state.status = String(localized: "Usta zamknięte")
             state.current = distance
             return
         }
@@ -178,7 +187,7 @@ final class LiveMeasurementEngine {
     private func measureNeck(_ landmarks: VNFaceLandmarks2D, frame: Frame, state: inout MeasurementState) {
         guard let contour = landmarks.faceContour.map({ frame.upright($0) }), !contour.isEmpty,
               let chin = contour.max(by: { $0.y < $1.y }) else {
-            state.status = "Nie widzę brody"
+            state.status = String(localized: "Nie widzę brody")
             return
         }
         state.outline = contour.map(frame.sensor)
@@ -186,7 +195,7 @@ final class LiveMeasurementEngine {
         let chinInside = CGPoint(x: chin.x, y: chin.y - 3 / Double(frame.depthUprightHeight))
         let verticalFocal = frame.isSideways ? frame.intrinsics.fx : frame.intrinsics.fy
         guard let chinDepth = frame.medianDepth(around: [frame.sensor(chinInside)]) else {
-            state.status = "Brak głębi na brodzie"
+            state.status = String(localized: "Brak głębi na brodzie")
             return
         }
         // Walk down (upright) one depth pixel at a time.
@@ -204,7 +213,7 @@ final class LiveMeasurementEngine {
         }
         state.from = frame.sensor(chin)
         guard let index = NeckProfile.deepest(offsetsMeters: offsets, depths: depths, chinDepth: chinDepth) else {
-            state.status = "Nie widzę szyi — odchyl głowę lub opuść telefon"
+            state.status = String(localized: "Nie widzę szyi — odchyl głowę lub opuść telefon")
             return
         }
         state.to = points[index]

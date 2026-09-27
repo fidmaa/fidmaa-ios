@@ -15,13 +15,13 @@ enum HEICComposerError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .cannotRead(let url): "Nie można odczytać \(url.lastPathComponent)"
-        case .cannotCreateDestination(let url): "Nie można utworzyć \(url.lastPathComponent)"
-        case .noDepthInPhoto: "Zdjęcie nie ma osadzonej głębi"
-        case .cannotCreatePixelBuffer: "Nie można utworzyć bufora głębi"
-        case .cannotEncodeDepth: "Nie można zakodować głębi"
-        case .finalizeFailed(let url): "Nie udało się zapisać \(url.lastPathComponent)"
-        case .verificationFailed(let details): "Głębia w zapisanym HEIC nie zgadza się z danymi (\(details))"
+        case .cannotRead(let url): String(localized: "Nie można odczytać \(url.lastPathComponent)")
+        case .cannotCreateDestination(let url): String(localized: "Nie można utworzyć \(url.lastPathComponent)")
+        case .noDepthInPhoto: String(localized: "Zdjęcie nie ma osadzonej głębi")
+        case .cannotCreatePixelBuffer: String(localized: "Nie można utworzyć bufora głębi")
+        case .cannotEncodeDepth: String(localized: "Nie można zakodować głębi")
+        case .finalizeFailed(let url): String(localized: "Nie udało się zapisać \(url.lastPathComponent)")
+        case .verificationFailed(let details): String(localized: "Głębia w zapisanym HEIC nie zgadza się z danymi (\(details))")
         }
     }
 }
@@ -86,7 +86,7 @@ enum HEICComposer {
     /// Reads the depth of an encoded HEIC back and checks it against `expected` meters.
     static func verify(data: Data, expected: [Float], width: Int, height: Int) throws {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
-            throw HEICComposerError.verificationFailed("nie można odczytać HEIC")
+            throw HEICComposerError.verificationFailed(String(localized: "nie można odczytać HEIC"))
         }
         try verify(source, expected: expected, width: width, height: height)
     }
@@ -95,7 +95,7 @@ enum HEICComposer {
         guard let info = CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, kCGImageAuxiliaryDataTypeDisparity)
                 ?? CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, kCGImageAuxiliaryDataTypeDepth),
               let dictionary = info as? [AnyHashable: Any] else {
-            throw HEICComposerError.verificationFailed("brak głębi po zapisie")
+            throw HEICComposerError.verificationFailed(String(localized: "brak głębi po zapisie"))
         }
         let depth = try AVDepthData(fromDictionaryRepresentation: dictionary)
             .converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
@@ -107,7 +107,7 @@ enum HEICComposer {
         let comparison = DepthComparison.compare(expected: expected, actual: actual)
         guard comparison.isAcceptable else {
             throw HEICComposerError.verificationFailed(String(
-                format: "mediana różnicy %.1f mm, %.0f%% pikseli > 5 mm",
+                format: String(localized: "mediana różnicy %.1f mm, %.0f%% pikseli > 5 mm"),
                 comparison.medianAbsDifference * 1000, comparison.fractionOverTolerance * 100))
         }
     }

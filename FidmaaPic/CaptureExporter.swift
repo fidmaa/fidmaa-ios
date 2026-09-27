@@ -11,9 +11,9 @@ enum CaptureExportError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noPhoto: "Aparat nie zwrócił zdjęcia."
-        case .noPhotoData: "Nie udało się zakodować zdjęcia HEIC."
-        case .depthNotFloat32: "Mapa głębi nie jest w formacie Float32."
+        case .noPhoto: String(localized: "Aparat nie zwrócił zdjęcia.")
+        case .noPhotoData: String(localized: "Nie udało się zakodować zdjęcia HEIC.")
+        case .depthNotFloat32: String(localized: "Mapa głębi nie jest w formacie Float32.")
         }
     }
 }
@@ -81,7 +81,7 @@ enum CaptureExporter {
                     values = DepthInterpretation.inverted(values)
                     logger.info("Photo depth inverted to match stream (photo \(photoCenter ?? .nan), stream \(streamCenter ?? .nan))")
                 case .unverified:
-                    warnings.append("Nie dało się sprawdzić głębi zdjęcia względem strumienia")
+                    warnings.append(String(localized: "Nie dało się sprawdzić głębi zdjęcia względem strumienia"))
                 case .asLabelled:
                     break
                 }
@@ -98,12 +98,12 @@ enum CaptureExporter {
             }
             depthInfo = info
             calibration = depth.cameraCalibrationData.map(makeCalibration)
-            if calibration == nil { warnings.append("Brak danych kalibracji kamery") }
+            if calibration == nil { warnings.append(String(localized: "Brak danych kalibracji kamery")) }
         } else {
-            warnings.append("Brak danych głębi w zdjęciu")
+            warnings.append(String(localized: "Brak danych głębi w zdjęciu"))
         }
         if accuracy == .relative {
-            warnings.append("Głębia ma dokładność RELATIVE, nie absolute")
+            warnings.append(String(localized: "Głębia ma dokładność RELATIVE, nie absolute"))
         }
 
         // HEIC (folder + Photos): replace iOS's mislabelled depth with verified true disparity.
@@ -123,7 +123,7 @@ enum CaptureExporter {
                 depthInfo?.heicDepth = "true-disparity"
             } catch {
                 logger.error("Corrected HEIC depth failed, keeping iOS original: \(error.localizedDescription, privacy: .public)")
-                warnings.append("HEIC: zostawiono oryginalną głębię iOS (\(error.localizedDescription))")
+                warnings.append(String(localized: "HEIC: zostawiono oryginalną głębię iOS (\(error.localizedDescription))"))
             }
         }
         attempt("photo.heic") { try heic.write(to: folder.appendingPathComponent("photo.heic")) }
@@ -144,7 +144,7 @@ enum CaptureExporter {
             }
         }
         if mattes.portrait == nil && mattes.hair == nil && mattes.skin == nil {
-            warnings.append("Brak masek — czy twarz była w kadrze?")
+            warnings.append(String(localized: "Brak masek — czy twarz była w kadrze?"))
         }
 
         // Multi-frame stack
@@ -177,7 +177,7 @@ enum CaptureExporter {
             try await PhotoLibrarySaver.save(heic)
         } catch {
             logger.error("Saving to Photos failed: \(error.localizedDescription, privacy: .public)")
-            warnings.append("Zdjęcia: \(error.localizedDescription)")
+            warnings.append(String(localized: "Zdjęcia: \(error.localizedDescription)"))
         }
 
         let thumbnail = ThumbnailLoader.thumbnail(from: heic, maxPixelSize: 320)

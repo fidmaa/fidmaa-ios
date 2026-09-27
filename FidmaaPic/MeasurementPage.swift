@@ -16,7 +16,7 @@ struct MeasurementPage: View {
                 overlay
             }
             panel
-                .padding(.top, 130)
+                .padding(.top, 200)
         }
         .ignoresSafeArea()
         .contentShape(Rectangle())
@@ -29,6 +29,10 @@ struct MeasurementPage: View {
             for p in state.outline.map(map) {
                 context.fill(Path(ellipseIn: CGRect(x: p.x - 2, y: p.y - 2, width: 4, height: 4)),
                              with: .color(.white.opacity(0.7)))
+            }
+            for (p, tooth) in zip(state.profile.map(map), state.profileTooth) {
+                context.fill(Path(ellipseIn: CGRect(x: p.x - 1.5, y: p.y - 1.5, width: 3, height: 3)),
+                             with: .color(tooth ? .cyan : .red.opacity(0.8)))
             }
             let a = state.from.map(map)
             let b = state.to.map(map)
@@ -57,7 +61,7 @@ struct MeasurementPage: View {
 
     private var panel: some View {
         VStack(spacing: 6) {
-            Text(mode == .mouth ? "Siekacze / otwarcie ust" : "Bródkowo-gnykowy (oś Z)")
+            Text(mode == .mouth ? LocalizedStringKey("Siekacze / otwarcie ust") : LocalizedStringKey("Bródkowo-gnykowy (oś Z)"))
                 .font(.headline)
             if !camera.isMeasurementAvailable {
                 Text("Pomiar niedostępny na tym urządzeniu").foregroundStyle(.orange)
@@ -85,7 +89,7 @@ struct MeasurementPage: View {
         .allowsHitTesting(false)
     }
 
-    private func maxLine(_ label: String, _ value: Float?, _ color: Color) -> some View {
+    private func maxLine(_ label: LocalizedStringKey, _ value: Float?, _ color: Color) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text(label).font(.subheadline).foregroundStyle(color)
             Text(value.map(millimeters) ?? "—")
@@ -95,8 +99,8 @@ struct MeasurementPage: View {
 
     private var kindLabel: String {
         switch state.kind {
-        case .teeth: " (zęby)"
-        case .lips: " (wargi)"
+        case .teeth: String(localized: " (zęby)")
+        case .lips: String(localized: " (wargi)")
         case .neck, nil: ""
         }
     }

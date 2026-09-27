@@ -5,7 +5,7 @@ enum PhotoLibraryError: LocalizedError {
     case notAuthorized
 
     var errorDescription: String? {
-        "Brak zgody na zapis do Zdjęć — włącz w Ustawieniach."
+        String(localized: "Brak zgody na zapis do Zdjęć — włącz w Ustawieniach.")
     }
 }
 

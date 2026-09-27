@@ -1,0 +1,856 @@
+{
+  "sourceLanguage": "pl",
+  "version": "1.0",
+  "strings": {
+    " (wargi)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (lips)"
+          }
+        }
+      }
+    },
+    " (zęby)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (teeth)"
+          }
+        }
+      }
+    },
+    "%lld×": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld×"
+          }
+        }
+      }
+    },
+    "Aparat": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Camera"
+          }
+        }
+      }
+    },
+    "Aparat nie zwrócił zdjęcia.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The camera returned no photo."
+          }
+        }
+      }
+    },
+    "Brak danych głębi": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No depth data"
+          }
+        }
+      }
+    },
+    "Brak danych głębi w zdjęciu": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The photo has no depth data"
+          }
+        }
+      }
+    },
+    "Brak danych kalibracji kamery": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No camera calibration data"
+          }
+        }
+      }
+    },
+    "Brak danych z żyroskopu — uśredniono wszystkie klatki": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No gyroscope data — all frames were averaged"
+          }
+        }
+      }
+    },
+    "Brak dostępu do danych bufora": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot access buffer data"
+          }
+        }
+      }
+    },
+    "Brak głębi na brodzie": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No depth at the chin"
+          }
+        }
+      }
+    },
+    "Brak kalibracji kamery": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No camera calibration"
+          }
+        }
+      }
+    },
+    "Brak klatek ze strumienia głębi — pominięto uśrednianie": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No streamed depth frames — averaging skipped"
+          }
+        }
+      }
+    },
+    "Brak mapy głębi w %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No depth map in %@"
+          }
+        }
+      }
+    },
+    "Brak masek — czy twarz była w kadrze?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No mattes — was the face in the frame?"
+          }
+        }
+      }
+    },
+    "Brak zdjęć": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No photos"
+          }
+        }
+      }
+    },
+    "Brak zgody na aparat. Włącz ją w Ustawieniach → Fidmaa Pic.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No camera access. Enable it in Settings → Fidmaa Pic."
+          }
+        }
+      }
+    },
+    "Brak zgody na zapis do Zdjęć — włącz w Ustawieniach.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No permission to save to Photos — enable it in Settings."
+          }
+        }
+      }
+    },
+    "Bródkowo-gnykowy": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mentohyoid"
+          }
+        }
+      }
+    },
+    "Bródkowo-gnykowy (oś Z)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mentohyoid (Z axis)"
+          }
+        }
+      }
+    },
+    "Błąd wykrywania twarzy": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Face detection error"
+          }
+        }
+      }
+    },
+    "Błąd: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error: %@"
+          }
+        }
+      }
+    },
+    "Galeria zdjęć": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Photo gallery"
+          }
+        }
+      }
+    },
+    "Głębia": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Depth"
+          }
+        }
+      }
+    },
+    "Głębia ma dokładność RELATIVE, nie absolute": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Depth accuracy is RELATIVE, not absolute"
+          }
+        }
+      }
+    },
+    "Głębia w zapisanym HEIC nie zgadza się z danymi (%@)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Depth in the saved HEIC does not match the data (%@)"
+          }
+        }
+      }
+    },
+    "Głębia: %@%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Depth: %@%@"
+          }
+        }
+      }
+    },
+    "HEIC — pojedyncza mapa głębi": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HEIC — single depth map"
+          }
+        }
+      }
+    },
+    "HEIC — uśredniona mapa głębi": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HEIC — averaged depth map"
+          }
+        }
+      }
+    },
+    "HEIC: zostawiono oryginalną głębię iOS (%@)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HEIC: kept the original iOS depth (%@)"
+          }
+        }
+      }
+    },
+    "Kamera nie udostępnia danych głębi w żadnym formacie.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The camera provides no depth data in any format."
+          }
+        }
+      }
+    },
+    "Klatki uśrednione: %lld/%lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frames averaged: %lld/%lld"
+          }
+        }
+      }
+    },
+    "MAKS": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MAX"
+          }
+        }
+      }
+    },
+    "MAKS wargi": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MAX lips"
+          }
+        }
+      }
+    },
+    "MAKS zęby": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MAX teeth"
+          }
+        }
+      }
+    },
+    "Mapa głębi nie jest w formacie Float32.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The depth map is not Float32."
+          }
+        }
+      }
+    },
+    "Nie dało się sprawdzić głębi zdjęcia względem strumienia": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not check the photo depth against the stream"
+          }
+        }
+      }
+    },
+    "Nie można odczytać %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot read %@"
+          }
+        }
+      }
+    },
+    "Nie można podłączyć kamery TrueDepth do sesji.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot attach the TrueDepth camera to the session."
+          }
+        }
+      }
+    },
+    "Nie można skonfigurować wyjścia zdjęć.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot configure the photo output."
+          }
+        }
+      }
+    },
+    "Nie można utworzyć %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot create %@"
+          }
+        }
+      }
+    },
+    "Nie można utworzyć bufora głębi": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot create the depth buffer"
+          }
+        }
+      }
+    },
+    "Nie można utworzyć pliku %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot create file %@"
+          }
+        }
+      }
+    },
+    "Nie można zakodować głębi": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot encode depth"
+          }
+        }
+      }
+    },
+    "Nie udało się przygotować plików: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not prepare files: %@"
+          }
+        }
+      }
+    },
+    "Nie udało się usunąć %lld zdjęć: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not delete %lld photos: %@"
+          }
+        }
+      }
+    },
+    "Nie udało się utworzyć obrazu": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not create the image"
+          }
+        }
+      }
+    },
+    "Nie udało się wczytać zdjęć: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not load photos: %@"
+          }
+        }
+      }
+    },
+    "Nie udało się zakodować zdjęcia HEIC.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not encode the HEIC photo."
+          }
+        }
+      }
+    },
+    "Nie udało się zapisać %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not save %@"
+          }
+        }
+      }
+    },
+    "Nie widzę brody": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chin not found"
+          }
+        }
+      }
+    },
+    "Nie widzę szyi — odchyl głowę lub opuść telefon": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neck not visible — tilt your head back or lower the phone"
+          }
+        }
+      }
+    },
+    "Nie widzę twarzy": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No face found"
+          }
+        }
+      }
+    },
+    "Nie widzę ust": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mouth not found"
+          }
+        }
+      }
+    },
+    "Nieoczekiwany format bufora: %@, oczekiwano %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unexpected buffer format: %@, expected %@"
+          }
+        }
+      }
+    },
+    "OK — odległość %lld cm": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK — distance %lld cm"
+          }
+        }
+      }
+    },
+    "Odsuń się": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move back"
+          }
+        }
+      }
+    },
+    "Odznacz": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deselect"
+          }
+        }
+      }
+    },
+    "Pliki z danymi głębi zostaną trwale usunięte. Kopie w aplikacji Zdjęcia zostają.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The depth data files will be deleted permanently. Copies in the Photos app are kept."
+          }
+        }
+      }
+    },
+    "Pomiar niedostępny na tym urządzeniu": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Measurement not available on this device"
+          }
+        }
+      }
+    },
+    "Przybliż się": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move closer"
+          }
+        }
+      }
+    },
+    "Siekacze / otwarcie ust": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incisors / mouth opening"
+          }
+        }
+      }
+    },
+    "Siekacze / usta": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incisors / mouth"
+          }
+        }
+      }
+    },
+    "To urządzenie nie ma przedniej kamery TrueDepth.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This device has no front TrueDepth camera."
+          }
+        }
+      }
+    },
+    "Trzymaj stabilniej — uśredniono %lld z %lld klatek": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold steadier — averaged %lld of %lld frames"
+          }
+        }
+      }
+    },
+    "Udostępnij (%lld)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share (%lld)"
+          }
+        }
+      }
+    },
+    "Usta zamknięte": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mouth closed"
+          }
+        }
+      }
+    },
+    "Usunąć %lld zdjęć z aplikacji?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete %lld photos from the app?"
+          }
+        }
+      }
+    },
+    "Usuń": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        }
+      }
+    },
+    "Usuń (%lld)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete (%lld)"
+          }
+        }
+      }
+    },
+    "Uśrednianie": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Averaging"
+          }
+        }
+      }
+    },
+    "ZIP — wszystkie dane": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIP — all data"
+          }
+        }
+      }
+    },
+    "Zamknij": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close"
+          }
+        }
+      }
+    },
+    "Zapisano: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved: %@"
+          }
+        }
+      }
+    },
+    "Zaznacz wszystkie": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select all"
+          }
+        }
+      }
+    },
+    "Zdjęcia (%lld)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Photos (%lld)"
+          }
+        }
+      }
+    },
+    "Zdjęcia: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Photos: %@"
+          }
+        }
+      }
+    },
+    "Zdjęcie nie ma osadzonej głębi": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The photo has no embedded depth"
+          }
+        }
+      }
+    },
+    "Zrób zdjęcie": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Take photo"
+          }
+        }
+      }
+    },
+    "brak głębi po zapisie": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no depth after saving"
+          }
+        }
+      }
+    },
+    "mediana różnicy %.1f mm, %.0f%% pikseli > 5 mm": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "median difference %.1f mm, %.0f%% of pixels > 5 mm"
+          }
+        }
+      }
+    },
+    "nie można odczytać HEIC": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cannot read the HEIC"
+          }
+        }
+      }
+    },
+    "stuknij, aby wyzerować": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tap to reset"
+          }
+        }
+      }
+    },
+    "teraz %@%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "now %@%@"
+          }
+        }
+      }
+    },
+    "⚠︎ %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⚠︎ %@"
+          }
+        }
+      }
+    }
+  }
+}

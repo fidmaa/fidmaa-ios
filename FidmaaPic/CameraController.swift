@@ -14,11 +14,11 @@ enum CameraError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .accessDenied: "Brak zgody na aparat. Włącz ją w Ustawieniach → Fidmaa Pic."
-        case .noTrueDepthCamera: "To urządzenie nie ma przedniej kamery TrueDepth."
-        case .cannotAddInput: "Nie można podłączyć kamery TrueDepth do sesji."
-        case .cannotAddPhotoOutput: "Nie można skonfigurować wyjścia zdjęć."
-        case .depthNotSupported: "Kamera nie udostępnia danych głębi w żadnym formacie."
+        case .accessDenied: String(localized: "Brak zgody na aparat. Włącz ją w Ustawieniach → Fidmaa Pic.")
+        case .noTrueDepthCamera: String(localized: "To urządzenie nie ma przedniej kamery TrueDepth.")
+        case .cannotAddInput: String(localized: "Nie można podłączyć kamery TrueDepth do sesji.")
+        case .cannotAddPhotoOutput: String(localized: "Nie można skonfigurować wyjścia zdjęć.")
+        case .depthNotSupported: String(localized: "Kamera nie udostępnia danych głębi w żadnym formacie.")
         }
     }
 }

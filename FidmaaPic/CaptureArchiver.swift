@@ -28,7 +28,7 @@ enum CaptureArchiver {
 
         var errorDescription: String? {
             switch self {
-            case .missingDepth(let folder): "Brak mapy głębi w \(folder)"
+            case .missingDepth(let folder): String(localized: "Brak mapy głębi w \(folder)")
             }
         }
     }

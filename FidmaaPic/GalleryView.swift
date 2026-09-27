@@ -89,7 +89,7 @@ struct GalleryView: View {
             selection = selection.intersection(captures)
         } catch {
             Self.logger.error("Listing captures failed: \(error.localizedDescription, privacy: .public)")
-            errorMessage = "Nie udało się wczytać zdjęć: \(error.localizedDescription)"
+            errorMessage = String(localized: "Nie udało się wczytać zdjęć: \(error.localizedDescription)")
         }
     }
 
@@ -104,7 +104,7 @@ struct GalleryView: View {
         for failure in failures {
             Self.logger.error("Deleting \(failure.folder.lastPathComponent, privacy: .public) failed: \(failure.message, privacy: .public)")
         }
-        errorMessage = failures.isEmpty ? nil : "Nie udało się usunąć \(failures.count) zdjęć: \(failures[0].message)"
+        errorMessage = failures.isEmpty ? nil : String(localized: "Nie udało się usunąć \(failures.count) zdjęć: \(failures[0].message)")
         selection = []
         load()
     }
@@ -128,7 +128,7 @@ struct GalleryView: View {
                     share = ShareBundle(archives: archives)
                 case .failure(let error):
                     Self.logger.error("Preparing share failed: \(error.localizedDescription, privacy: .public)")
-                    errorMessage = "Nie udało się przygotować plików: \(error.localizedDescription)"
+                    errorMessage = String(localized: "Nie udało się przygotować plików: \(error.localizedDescription)")
                 }
             }
         }

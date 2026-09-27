@@ -14,11 +14,11 @@ enum ImageFileWriterError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case let .unexpectedPixelFormat(expected, actual): "Nieoczekiwany format bufora: \(actual), oczekiwano \(expected)"
-        case .noBaseAddress: "Brak dostępu do danych bufora"
-        case .imageCreationFailed: "Nie udało się utworzyć obrazu"
-        case .destinationCreationFailed(let url): "Nie można utworzyć pliku \(url.lastPathComponent)"
-        case .finalizeFailed(let url): "Nie udało się zapisać \(url.lastPathComponent)"
+        case let .unexpectedPixelFormat(expected, actual): String(localized: "Nieoczekiwany format bufora: \(actual), oczekiwano \(expected)")
+        case .noBaseAddress: String(localized: "Brak dostępu do danych bufora")
+        case .imageCreationFailed: String(localized: "Nie udało się utworzyć obrazu")
+        case .destinationCreationFailed(let url): String(localized: "Nie można utworzyć pliku \(url.lastPathComponent)")
+        case .finalizeFailed(let url): String(localized: "Nie udało się zapisać \(url.lastPathComponent)")
         }
     }
 }

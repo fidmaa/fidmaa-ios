@@ -3,11 +3,42 @@ import FidmaaCore
 import SwiftUI
 
 /// Swipe order: neck ← mouth ← camera → depth.
-private enum Page: Hashable {
+private enum Page: Hashable, CaseIterable {
     case neck
     case mouth
     case camera
     case depth
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .neck: "Bródkowo-gnykowy"
+        case .mouth: "Siekacze / usta"
+        case .camera: "Aparat"
+        case .depth: "Głębia"
+        }
+    }
+}
+
+/// Dots showing which page is visible, with its name.
+private struct PageIndicator: View {
+    let page: Page
+
+    var body: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 8) {
+                ForEach(Page.allCases, id: \.self) { p in
+                    Circle()
+                        .fill(p == page ? Color.white : Color.white.opacity(0.35))
+                        .frame(width: p == page ? 9 : 7, height: p == page ? 9 : 7)
+                }
+            }
+            Text(page.title).font(.caption2).foregroundStyle(.white.opacity(0.85))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(.black.opacity(0.3), in: Capsule())
+        .allowsHitTesting(false)
+    }
 }
 
 struct ContentView: View {
@@ -45,12 +76,15 @@ struct ContentView: View {
                 .ignoresSafeArea()
                 VStack(spacing: 12) {
                     DistanceBanner(status: camera.distance)
-                    Picker("Uśrednianie", selection: $averagingFrames) {
-                        ForEach(CaptureConfig.averagingOptions, id: \.self) { Text("\($0)×").tag($0) }
+                    PageIndicator(page: page)
+                    if page == .camera || page == .depth {
+                        Picker("Uśrednianie", selection: $averagingFrames) {
+                            ForEach(CaptureConfig.averagingOptions, id: \.self) { Text("\($0)×").tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 180)
+                        .background(.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
                     }
-                    .pickerStyle(.segmented)
-                    .frame(width: 180)
-                    .background(.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
                     Spacer()
                     ResultPanel(result: camera.lastResult, error: camera.lastError)
                     controls
@@ -71,10 +105,15 @@ struct ContentView: View {
             if event.phase == .ended { takePhoto() }
         }
         .sheet(isPresented: $showsGallery) { GalleryView() }
-        .onAppear { camera.start() }
+        .onAppear {
+            camera.start()
+            UIApplication.shared.isIdleTimerDisabled = true  // keep the screen on while the app is open
+        }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
-            case .active: camera.start()
+            case .active:
+                camera.start()
+                UIApplication.shared.isIdleTimerDisabled = true
             case .background: camera.stop()
             default: break
             }
@@ -127,7 +166,7 @@ private struct DistanceBanner: View {
     let status: DistanceStatus
 
     var body: some View {
-        Text(status.message)
+        Text(status.localizedMessage)
             .font(.headline)
             .foregroundStyle(.white)
             .padding(.horizontal, 16)
@@ -170,5 +209,17 @@ private struct ResultPanel: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(error == nil && result == nil ? 0 : 8)
         .background(.black.opacity(error == nil && result == nil ? 0 : 0.5), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+extension DistanceStatus {
+    /// App-side, localizable version of FidmaaCore's message.
+    var localizedMessage: String {
+        switch self {
+        case .noData: String(localized: "Brak danych głębi")
+        case .tooClose: String(localized: "Odsuń się")
+        case .tooFar: String(localized: "Przybliż się")
+        case .ok(let meters): String(localized: "OK — odległość \(Int((meters * 100).rounded())) cm")
+        }
     }
 }

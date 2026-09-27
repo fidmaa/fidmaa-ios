@@ -6,7 +6,7 @@ enum StackExporter {
     /// Returns nil (with a warning) when no streamed frames were available.
     static func export(_ stack: StackCapture, to folder: URL, warnings: inout [String]) throws -> StackInfo? {
         guard let reference = stack.frames.last else {
-            warnings.append("Brak klatek ze strumienia głębi — pominięto uśrednianie")
+            warnings.append(String(localized: "Brak klatek ze strumienia głębi — pominięto uśrednianie"))
             return nil
         }
         let referenceIndex = stack.frames.count - 1
@@ -36,10 +36,10 @@ enum StackExporter {
 
         let usedCount = usedFrames.count
         if usedCount < stack.requestedFrames {
-            warnings.append("Trzymaj stabilniej — uśredniono \(usedCount) z \(stack.requestedFrames) klatek")
+            warnings.append(String(localized: "Trzymaj stabilniej — uśredniono \(usedCount) z \(stack.requestedFrames) klatek"))
         }
         if !stack.motionAvailable || referenceAttitude == nil {
-            warnings.append("Brak danych z żyroskopu — uśredniono wszystkie klatki")
+            warnings.append(String(localized: "Brak danych z żyroskopu — uśredniono wszystkie klatki"))
         }
         let window = (stack.frames.last?.timestamp ?? 0) - (stack.frames.first?.timestamp ?? 0)
         return StackInfo(requestedFrames: stack.requestedFrames, windowSeconds: window, framesCaptured: stack.frames.count,

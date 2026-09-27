@@ -80,23 +80,35 @@ public struct PixelSample: Equatable, Sendable {
 }
 
 /// Finds incisal edges on a pixel profile running from the upper inner lip (index 0) to the lower
-/// inner lip (last index): a tooth is bright and unsaturated.
+/// inner lip (last index). Thresholds adapt to the profile: a tooth pixel is brighter than the midpoint
+/// between the darkest (cavity) and brightest sample, above an absolute floor, and not strongly colored.
 public enum IncisorDetector {
-    public static let minLuma: Float = 0.55
-    public static let maxSaturation: Float = 0.35
+    public static let minLuma: Float = 0.30
+    public static let maxSaturation: Float = 0.45
+    /// Brightest − darkest must exceed this, otherwise there is no cavity to tell teeth from.
+    public static let minContrast: Float = 0.15
     public static let minRun = 3
     /// Teeth must touch the outer 40% of the profile at their lip.
     public static let band = 0.4
 
+    /// Per-sample tooth classification (also drawn on screen for troubleshooting).
+    public static func classify(_ profile: [PixelSample]) -> [Bool] {
+        guard let lo = profile.map(\.luma).min(), let hi = profile.map(\.luma).max(), hi - lo >= minContrast else {
+            return Array(repeating: false, count: profile.count)
+        }
+        let threshold = max(minLuma, (lo + hi) / 2)
+        return profile.map { $0.luma > threshold && $0.saturation < maxSaturation }
+    }
+
     public static func edges(_ profile: [PixelSample]) -> (upper: Int, lower: Int)? {
         let n = profile.count
         guard n >= 2 * minRun else { return nil }
+        let tooth = classify(profile)
         var runs: [Range<Int>] = []
         var start: Int?
-        for (i, s) in profile.enumerated() {
-            let tooth = s.luma > minLuma && s.saturation < maxSaturation
-            if tooth, start == nil { start = i }
-            if !tooth, let st = start { runs.append(st..<i); start = nil }
+        for i in 0..<n {
+            if tooth[i], start == nil { start = i }
+            if !tooth[i], let st = start { runs.append(st..<i); start = nil }
         }
         if let st = start { runs.append(st..<n) }
         runs = runs.filter { $0.count >= minRun }

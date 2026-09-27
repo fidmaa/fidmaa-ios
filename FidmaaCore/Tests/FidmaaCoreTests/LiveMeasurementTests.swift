@@ -115,3 +115,24 @@ private func profile(_ pattern: String) -> [PixelSample] {
                                       screen: Size2D(width: 390, height: 844), rotationDegrees: 90, mirrored: true)
     #expect(abs(p.x - 195) < 1e-9 && abs(p.y - 422) < 1e-9)
 }
+
+@Test func incisorEdgesInDimLight() {
+    // indoor light: teeth only mid-bright and a bit yellow, cavity dark red
+    let tooth = PixelSample(luma: 0.48, saturation: 0.32), cavity = PixelSample(luma: 0.14, saturation: 0.55)
+    let p = Array(repeating: tooth, count: 7) + Array(repeating: cavity, count: 26) + Array(repeating: tooth, count: 7)
+    let e = IncisorDetector.edges(p)
+    #expect(e?.upper == 6)
+    #expect(e?.lower == 33)
+}
+
+@Test func incisorEdgesNeedContrast() {
+    // closed bite / no cavity: everything similar → no reliable edges
+    let a = PixelSample(luma: 0.50, saturation: 0.3), b = PixelSample(luma: 0.44, saturation: 0.3)
+    let p = Array(repeating: a, count: 10) + Array(repeating: b, count: 20) + Array(repeating: a, count: 10)
+    #expect(IncisorDetector.edges(p) == nil)
+}
+
+@Test func toothClassificationIsExposedForOverlay() {
+    let p = [PixelSample(luma: 0.8, saturation: 0.1), PixelSample(luma: 0.1, saturation: 0.6)]
+    #expect(IncisorDetector.classify(p) == [true, false])
+}
