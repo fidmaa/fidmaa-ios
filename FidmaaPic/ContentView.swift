@@ -11,7 +11,6 @@ struct ContentView: View {
     @State private var page = Page.camera
     @State private var showsGallery = false
     @AppStorage("averagingFrames") private var averagingFrames = CaptureConfig.defaultAveragingFrames
-    @AppStorage("photoDepthFiltered") private var photoDepthFiltered = CaptureConfig.defaultPhotoDepthFiltered
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -41,13 +40,6 @@ struct ContentView: View {
                     }
                     .pickerStyle(.segmented)
                     .frame(width: 180)
-                    .background(.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
-                    Picker("Głębia zdjęcia", selection: $photoDepthFiltered) {
-                        Text("Surowa").tag(false)
-                        Text("Wygładzona Apple").tag(true)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 240)
                     .background(.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
                     Spacer()
                     ResultPanel(result: camera.lastResult, error: camera.lastError)
@@ -86,7 +78,9 @@ struct ContentView: View {
             Spacer()
 
             Button {
-                camera.capturePhoto(averagingFrames: averagingFrames, filteredPhotoDepth: photoDepthFiltered)
+                // Apple-filtered photo depth is hidden: it arrives quantized in ~13 mm steps.
+                camera.capturePhoto(averagingFrames: averagingFrames,
+                                    filteredPhotoDepth: CaptureConfig.defaultPhotoDepthFiltered)
             } label: {
                 ZStack {
                     Circle().stroke(.white, lineWidth: 4).frame(width: 76, height: 76)
