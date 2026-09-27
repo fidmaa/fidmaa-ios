@@ -6,8 +6,10 @@ import UIKit
 /// System sound IDs are not public API constants but are stable and widely used;
 /// they follow the ring/silent switch, haptics do not.
 enum CaptureFeedback {
-    private static let exposureEndedSound: SystemSoundID = 1118  // "end video recording"
-    private static let warningSound: SystemSoundID = 1073        // short negative beep
+    private static let exposureEndedSound: SystemSoundID = 1118  // end_video_record
+    private static let savedSound: SystemSoundID = 1111          // jbl_confirm — short confirmation
+    private static let warningSound: SystemSoundID = 1053        // SIMToolkitNegativeACK — single soft tone
+    private static let errorSound: SystemSoundID = 1073          // ct-error (call failed) — only for real failures
 
     /// Shutter pressed.
     static func shutter() {
@@ -20,17 +22,19 @@ enum CaptureFeedback {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
 
-    /// Capture saved; warnings (e.g. rejected frames) get a sound, a clean save only a haptic.
+    /// Capture saved: confirmation, or a softer tone when there were warnings (e.g. no mattes).
     static func saved(hasWarnings: Bool) {
         if hasWarnings {
             AudioServicesPlaySystemSound(warningSound)
             UINotificationFeedbackGenerator().notificationOccurred(.warning)
         } else {
+            AudioServicesPlaySystemSound(savedSound)
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         }
     }
 
     static func failed() {
+        AudioServicesPlaySystemSound(errorSound)
         UINotificationFeedbackGenerator().notificationOccurred(.error)
     }
 }
