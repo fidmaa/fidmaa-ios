@@ -163,6 +163,7 @@ enum CaptureExporter {
         logger.info("Exported \(folder.lastPathComponent, privacy: .public), accuracy \(accuracy.rawValue, privacy: .public)")
         return CaptureResult(folder: folder, accuracy: accuracy, thumbnail: thumbnail,
                              framesUsed: stackInfo?.framesUsed, framesCaptured: stackInfo?.framesCaptured,
+                             photoDepthFiltered: depthInfo?.isFiltered ?? false,
                              warnings: warnings)
     }
 

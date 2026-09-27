@@ -29,12 +29,14 @@ struct CaptureResult {
     let thumbnail: UIImage?
     let framesUsed: Int?
     let framesCaptured: Int?
+    let photoDepthFiltered: Bool
     let warnings: [String]
 }
 
 enum CaptureConfig {
-    /// Raw (unfiltered) depth for measurements; holes stay NaN/0 instead of being interpolated.
-    static let isDepthDataFiltered = false
+    /// Default photo depth: raw (unfiltered) for measurements; holes stay NaN/0.
+    /// The UI can switch the photo to Apple's filtered (smoothed, hole-filled) depth; the stream stays raw.
+    static let defaultPhotoDepthFiltered = false
     /// Minimum interval between live distance updates.
     static let distanceUpdateInterval: CFTimeInterval = 0.1
     /// Averaging choices offered in the UI: number of streamed frames before the shutter.
@@ -296,7 +298,7 @@ final class CameraController: NSObject {
     // MARK: - Capture
 
     /// Call on main thread.
-    func capturePhoto(averagingFrames: Int) {
+    func capturePhoto(averagingFrames: Int, filteredPhotoDepth: Bool) {
         guard state == .running, !isCapturing else { return }
         isCapturing = true
         lastError = nil
@@ -307,7 +309,7 @@ final class CameraController: NSObject {
                                  motionAvailable: motion.isAvailable)
         let rotationAngle = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture
         sessionQueue.async {
-            let settings = self.makePhotoSettings(rotationAngle: rotationAngle)
+            let settings = self.makePhotoSettings(rotationAngle: rotationAngle, filteredDepth: filteredPhotoDepth)
             let id = settings.uniqueID
             let processor = PhotoCaptureProcessor(distance: distanceAtCapture, stack: stack) { [weak self] outcome in
                 guard let self else { return }
@@ -328,7 +330,7 @@ final class CameraController: NSObject {
         }
     }
 
-    private func makePhotoSettings(rotationAngle: CGFloat?) -> AVCapturePhotoSettings {
+    private func makePhotoSettings(rotationAngle: CGFloat?, filteredDepth: Bool) -> AVCapturePhotoSettings {
         let settings = photoOutput.availablePhotoCodecTypes.contains(.hevc)
             ? AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
             : AVCapturePhotoSettings()
@@ -336,7 +338,7 @@ final class CameraController: NSObject {
         settings.photoQualityPrioritization = .quality
         settings.isDepthDataDeliveryEnabled = photoOutput.isDepthDataDeliveryEnabled
         settings.embedsDepthDataInPhoto = true
-        settings.isDepthDataFiltered = CaptureConfig.isDepthDataFiltered
+        settings.isDepthDataFiltered = filteredDepth
         settings.isPortraitEffectsMatteDeliveryEnabled = photoOutput.isPortraitEffectsMatteDeliveryEnabled
         settings.embedsPortraitEffectsMatteInPhoto = true
         settings.enabledSemanticSegmentationMatteTypes = photoOutput.enabledSemanticSegmentationMatteTypes
