@@ -45,6 +45,10 @@ enum CaptureConfig {
     static let stackMinimumFrames = 5
     /// Ring buffer size (~1.5 s at 30 fps).
     static let frameBufferCapacity = 45
+    /// Minimum interval between colored depth view updates (~15 fps).
+    static let depthViewUpdateInterval: CFTimeInterval = 1.0 / 15
+    /// The selfie preview is mirrored; mirror the depth view the same way.
+    static let depthViewMirrored = true
 }
 
 /// Streamed depth frames plus matching motion samples, taken at the shutter.
@@ -68,6 +72,17 @@ final class CameraController: NSObject {
     private(set) var isCapturing = false
     private(set) var lastResult: CaptureResult?
     private(set) var lastError: String?
+    /// Latest colored depth frame (sensor orientation); only produced while the depth view is shown.
+    private(set) var depthImage: CGImage?
+    /// Clockwise rotation that makes sensor-oriented frames upright on screen.
+    private(set) var previewRotationAngle: CGFloat = 90
+    var isDepthViewActive = false {
+        didSet {
+            let active = isDepthViewActive
+            depthViewEnabled.withLock { $0 = active }
+            if !active { depthImage = nil }
+        }
+    }
 
     @ObservationIgnored let session = AVCaptureSession()
     @ObservationIgnored private let sessionQueue = DispatchQueue(label: "fidmaa.session")
@@ -83,6 +98,9 @@ final class CameraController: NSObject {
     @ObservationIgnored private let latestMedian = OSAllocatedUnfairLock<Float?>(initialState: nil)
     @ObservationIgnored private let frameBuffer = DepthFrameBuffer(capacity: CaptureConfig.frameBufferCapacity)
     @ObservationIgnored private let motion = MotionRecorder()
+    @ObservationIgnored private let depthViewEnabled = OSAllocatedUnfairLock(initialState: false)
+    /// depthQueue only.
+    @ObservationIgnored private var lastDepthViewUpdate: CFTimeInterval = 0
     /// sessionQueue only.
     @ObservationIgnored private var device: AVCaptureDevice?
     /// main thread only.
@@ -172,6 +190,7 @@ final class CameraController: NSObject {
             return
         }
         connection.videoRotationAngle = angle
+        previewRotationAngle = angle
     }
 
     private func fail(_ error: Error) {
@@ -351,6 +370,14 @@ extension CameraController: AVCaptureDepthDataOutputDelegate {
         frameBuffer.append(frame)
 
         let now = CACurrentMediaTime()
+        if depthViewEnabled.withLock({ $0 }), now - lastDepthViewUpdate >= CaptureConfig.depthViewUpdateInterval {
+            lastDepthViewUpdate = now
+            let image = Self.coloredImage(frame)
+            DispatchQueue.main.async {
+                if self.isDepthViewActive { self.depthImage = image }
+            }
+        }
+
         guard now - lastDistanceUpdate >= CaptureConfig.distanceUpdateInterval else { return }
         lastDistanceUpdate = now
         let median = frame.values.withUnsafeBufferPointer {
@@ -359,5 +386,15 @@ extension CameraController: AVCaptureDepthDataOutputDelegate {
         latestMedian.withLock { $0 = median }
         let status = DistanceEstimator.status(forMedian: median)
         DispatchQueue.main.async { self.distance = status }
+    }
+
+    private static func coloredImage(_ frame: DepthFrame) -> CGImage? {
+        let bytes = DepthColormap.rgba(frame.values)
+        guard let provider = CGDataProvider(data: Data(bytes) as CFData),
+              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        return CGImage(width: frame.width, height: frame.height, bitsPerComponent: 8, bitsPerPixel: 32,
+                       bytesPerRow: frame.width * 4, space: colorSpace,
+                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+                       provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
     }
 }

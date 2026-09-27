@@ -3,6 +3,8 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var camera = CameraController()
+    @State private var showsDepth = false
+    @State private var showsGallery = false
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -16,6 +18,12 @@ struct ContentView: View {
             } else {
                 CameraPreviewView(session: camera.session, onLayerReady: camera.attach(previewLayer:))
                     .ignoresSafeArea()
+                if showsDepth {
+                    DepthMapView(image: camera.depthImage, rotationAngle: camera.previewRotationAngle,
+                                 mirrored: CaptureConfig.depthViewMirrored)
+                        .ignoresSafeArea()
+                        .transition(.move(edge: .trailing))
+                }
                 VStack(spacing: 12) {
                     DistanceBanner(status: camera.distance)
                     Spacer()
@@ -25,6 +33,16 @@ struct ContentView: View {
                 .padding()
             }
         }
+        .contentShape(Rectangle())
+        .gesture(DragGesture(minimumDistance: 30).onEnded { value in
+            guard abs(value.translation.width) > abs(value.translation.height) else { return }
+            withAnimation(.easeInOut(duration: 0.25)) {
+                if value.translation.width < -50 { showsDepth = true }
+                if value.translation.width > 50 { showsDepth = false }
+            }
+        })
+        .onChange(of: showsDepth) { _, depth in camera.isDepthViewActive = depth }
+        .sheet(isPresented: $showsGallery) { GalleryView() }
         .onAppear { camera.start() }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -46,6 +64,9 @@ struct ContentView: View {
             }
             .frame(width: 60, height: 80)
             .clipShape(RoundedRectangle(cornerRadius: 8))
+            .onTapGesture { showsGallery = true }
+            .accessibilityLabel("Galeria zdjęć")
+            .accessibilityAddTraits(.isButton)
 
             Spacer()
 
