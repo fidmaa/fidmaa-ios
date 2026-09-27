@@ -37,10 +37,13 @@ public struct DepthInfo: Codable, Equatable, Sendable {
     /// Center medians used for the interpretation check.
     public var photoCenterMeters: Float?
     public var streamCenterMeters: Float?
+    /// What photo.heic carries: "true-disparity" (corrected by the app) or "ios-original"
+    /// (iOS 26 on iPhone 17: meters under a "disparity" label).
+    public var heicDepth: String?
 
     enum CodingKeys: String, CodingKey {
         case width, height, units, pixelFormat, accuracy, quality, isFiltered, originalPixelFormat
-        case invalidValue, orientation, interpretation
+        case invalidValue, orientation, interpretation, heicDepth
         case photoCenterMeters = "photoCenter_m"
         case streamCenterMeters = "streamCenter_m"
     }
@@ -70,6 +73,7 @@ public struct DepthInfo: Codable, Equatable, Sendable {
         try c.encode(interpretation, forKey: .interpretation)
         try c.encode(photoCenterMeters, forKey: .photoCenterMeters)
         try c.encode(streamCenterMeters, forKey: .streamCenterMeters)
+        try c.encode(heicDepth, forKey: .heicDepth)
     }
 }
 

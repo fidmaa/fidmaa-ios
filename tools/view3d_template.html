@@ -11,9 +11,14 @@ canvas{display:block}
 #bar{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:6px;flex-wrap:wrap;justify-content:center;padding:8px;background:var(--panel);border-radius:8px;max-width:calc(100% - 32px)}
 button{background:#333;color:var(--fg);border:1px solid #555;border-radius:6px;padding:6px 10px;cursor:pointer;font:inherit}
 button.on{background:#2d6cdf;border-color:#2d6cdf}
+#measurements{position:absolute;top:10px;right:10px;max-width:340px;padding:8px 10px;background:var(--panel);border-radius:8px;display:none;line-height:1.5}
+#measurements b{font-variant-numeric:tabular-nums}
+#measurements small{color:var(--muted)}
+body.measuring canvas{cursor:crosshair}
 #hint{position:absolute;bottom:108px;left:50%;transform:translateX(-50%);color:var(--muted);font-size:12px;text-align:center}
 </style></head><body>
 <div id="labels"></div>
+<div id="measurements"></div>
 <div id="hint">przeciągnij: obrót · scroll: zoom · prawy przycisk: przesuwanie — widoki są zsynchronizowane</div>
 <div id="bar">
  <button data-mode="shade" class="on">Cieniowanie</button>
@@ -23,6 +28,7 @@ button.on{background:#2d6cdf;border-color:#2d6cdf}
  <button id="rot">Obróć 90°</button>
  <button id="light">Światło z przodu</button>
  <button id="reset">Reset widoku</button>
+ <button id="measure">📏 Pomiar</button>
 </div>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
 <script type="module">
@@ -82,7 +88,7 @@ const scenes = meshes.map(m => { const s = new THREE.Scene(); s.background = new
   const mesh = new THREE.Mesh(m.g, m.material);
   mesh.position.copy(target).negate(); const pivot = new THREE.Group(); pivot.add(mesh); pivot.rotation.z = rot; s.add(pivot);
   s.add(new THREE.AmbientLight(0xffffff, 0.35)); const dl = new THREE.DirectionalLight(0xffffff, 2.2); s.add(dl);
-  return {s, pivot, dl}; });
+  return {s, pivot, dl, mesh}; });
 const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 10);
 const controls = new OrbitControls(camera, renderer.domElement); controls.enableDamping = true;
 function reset(){ camera.position.set(0,0,+(Q.get('dist')||0.5)); controls.target.set(0,0,0); controls.update(); }
@@ -104,6 +110,44 @@ const lightBtn = document.getElementById('light');
 const lightLabel = () => lightBtn.textContent = side ? 'Światło z boku' : 'Światło z przodu';
 lightLabel(); lightBtn.onclick = () => { side = !side; lightLabel(); placeLight(); };
 document.getElementById('reset').onclick = reset;
+// ---- measuring: click two points on a model, get their 3D distance (model units are meters) ----
+const measureBtn = document.getElementById('measure'), list = document.getElementById('measurements');
+let measuring = false, pending = null, down = null, count = 0;
+const results = [], markers = [];
+measureBtn.onclick = () => { measuring = !measuring; measureBtn.classList.toggle('on', measuring);
+  document.body.classList.toggle('measuring', measuring); pending = null; render(); };
+function render(){
+  list.style.display = measuring || results.length ? 'block' : 'none';
+  list.innerHTML = (measuring ? `<small>${pending ? 'kliknij drugi punkt' : 'kliknij pierwszy punkt na modelu'}</small><br>` : '')
+    + results.map(r => `${r.n}. <b>${r.mm.toFixed(1)} mm</b> <small>${r.panel}<br>`
+      + `w poprzek ${r.lateral.toFixed(1)} mm · różnica głębi ${r.dz.toFixed(1)} mm</small>`).join('<br>')
+    + (results.length ? '<br><button id="clear">Wyczyść pomiary</button>' : '');
+  const clear = document.getElementById('clear');
+  if (clear) clear.onclick = () => { markers.forEach(m => m.parent.remove(m)); markers.length = 0; results.length = 0; count = 0; render(); };
+}
+function marker(mesh, p){ const m = new THREE.Mesh(new THREE.SphereGeometry(0.0015, 12, 8),
+    new THREE.MeshBasicMaterial({color: 0xff3355, depthTest: false}));
+  m.position.copy(p); m.renderOrder = 10; mesh.add(m); markers.push(m); }
+const raycaster = new THREE.Raycaster();
+renderer.domElement.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener('pointerup', e => {
+  if (!measuring || e.button !== 0 || !down || Math.hypot(e.clientX-down[0], e.clientY-down[1]) > 4) return;
+  const w = innerWidth/COLS, h = innerHeight/ROWS, col = Math.floor(e.clientX/w), row = Math.floor(e.clientY/h), i = row*COLS+col;
+  if (i >= P) return;
+  const ndc = new THREE.Vector2(((e.clientX-col*w)/w)*2-1, -((e.clientY-row*h)/h)*2+1);
+  raycaster.setFromCamera(ndc, camera);
+  const hit = raycaster.intersectObject(scenes[i].mesh, false)[0];
+  if (!hit) return;
+  const p = scenes[i].mesh.worldToLocal(hit.point.clone());  // camera coordinates of the TrueDepth sensor, meters
+  marker(scenes[i].mesh, p);
+  if (!pending || pending.panel !== i) { pending = {panel: i, p}; render(); return; }
+  const a = pending.p, geo = new THREE.BufferGeometry().setFromPoints([a, p]);
+  const line = new THREE.Line(geo, new THREE.LineBasicMaterial({color: 0xff3355, depthTest: false}));
+  line.renderOrder = 10; scenes[i].mesh.add(line); markers.push(line);
+  results.push({n: ++count, panel: D.panels[i].title, mm: a.distanceTo(p)*1000,
+                lateral: Math.hypot(a.x-p.x, a.y-p.y)*1000, dz: Math.abs(a.z-p.z)*1000});
+  pending = null; render();
+});
 if (Q.get('mode')) document.querySelector(`[data-mode=${Q.get('mode')}]`).click();
 (function loop(){ requestAnimationFrame(loop); controls.update(); const w = innerWidth/COLS, h = innerHeight/ROWS;
   scenes.forEach((o,i) => { const x=(i%COLS)*w, y=(ROWS-1-Math.floor(i/COLS))*h;

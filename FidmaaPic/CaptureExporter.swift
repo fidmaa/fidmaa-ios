@@ -46,11 +46,9 @@ enum CaptureExporter {
             }
         }
 
-        guard let heic = photo.fileDataRepresentation() else { throw CaptureExportError.noPhotoData }
-        attempt("photo.heic") { try heic.write(to: folder.appendingPathComponent("photo.heic")) }
-
         // Depth
         var depthInfo: DepthInfo?
+        var correctedDepth: (values: [Float], width: Int, height: Int)?
         var calibration: CalibrationInfo?
         var accuracy = DepthAccuracyLabel.unknown
         if let original = photo.depthData {
@@ -94,6 +92,7 @@ enum CaptureExporter {
                 attempt("depth.f32") {
                     try DepthRaw.littleEndianData(frames: [values]).write(to: folder.appendingPathComponent("depth.f32"))
                 }
+                if info.interpretation != .unverified { correctedDepth = (values, width, height) }
             } else {
                 warnings.append("depth.f32: \(CaptureExportError.depthNotFloat32.localizedDescription)")
             }
@@ -106,6 +105,28 @@ enum CaptureExporter {
         if accuracy == .relative {
             warnings.append("Głębia ma dokładność RELATIVE, nie absolute")
         }
+
+        // HEIC (folder + Photos): replace iOS's mislabelled depth with verified true disparity.
+        guard let originalHEIC = photo.fileDataRepresentation() else { throw CaptureExportError.noPhotoData }
+        var heic = originalHEIC
+        depthInfo?.heicDepth = "ios-original"
+        if let original = photo.depthData, let corrected = correctedDepth {
+            do {
+                let replacement = try HEICComposer.trueDisparity(from: original, meters: corrected.values,
+                                                                 width: corrected.width, height: corrected.height)
+                guard let data = photo.fileDataRepresentation(with: DepthReplacingCustomizer(depth: replacement)) else {
+                    throw CaptureExportError.noPhotoData
+                }
+                try HEICComposer.verify(data: data, expected: corrected.values,
+                                        width: corrected.width, height: corrected.height)
+                heic = data
+                depthInfo?.heicDepth = "true-disparity"
+            } catch {
+                logger.error("Corrected HEIC depth failed, keeping iOS original: \(error.localizedDescription, privacy: .public)")
+                warnings.append("HEIC: zostawiono oryginalną głębię iOS (\(error.localizedDescription))")
+            }
+        }
+        attempt("photo.heic") { try heic.write(to: folder.appendingPathComponent("photo.heic")) }
 
         // Mattes
         var mattes = MatteFiles()
@@ -187,5 +208,18 @@ enum CaptureExporter {
             lensDistortionCenter: Point2D(x: Double(c.lensDistortionCenter.x), y: Double(c.lensDistortionCenter.y)),
             lensDistortionLookupTable: c.lensDistortionLookupTable.map(DepthRaw.floats(fromNativeData:)) ?? [],
             inverseLensDistortionLookupTable: c.inverseLensDistortionLookupTable.map(DepthRaw.floats(fromNativeData:)) ?? [])
+    }
+}
+
+/// Swaps the depth written into the photo's file data (AVFoundation's official hook for this).
+private final class DepthReplacingCustomizer: NSObject, AVCapturePhotoFileDataRepresentationCustomizer {
+    private let depth: AVDepthData
+
+    init(depth: AVDepthData) {
+        self.depth = depth
+    }
+
+    func replacementDepthData(for photo: AVCapturePhoto) -> AVDepthData? {
+        depth
     }
 }

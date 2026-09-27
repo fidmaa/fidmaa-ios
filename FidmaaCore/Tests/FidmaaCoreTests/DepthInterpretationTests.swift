@@ -33,5 +33,6 @@ import Testing
     #expect(json["interpretation"] as? String == "inverted-to-match-stream")
     #expect(json["orientation"] as? String == "sensor")
     #expect(json["streamCenter_m"] is NSNull)
+    #expect(json["heicDepth"] is NSNull)
     #expect(try FidmaaJSON.decode(DepthInfo.self, from: FidmaaJSON.encode(info)) == info)
 }

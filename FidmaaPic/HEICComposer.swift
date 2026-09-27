@@ -69,12 +69,30 @@ enum HEICComposer {
         CGImageDestinationAddAuxiliaryDataInfo(output, depthType as CFString, depthInfo as CFDictionary)
 
         guard CGImageDestinationFinalize(output) else { throw HEICComposerError.finalizeFailed(destination) }
-        try verify(destination, expected: values, width: width, height: height)
+        guard let written = CGImageSourceCreateWithURL(destination as CFURL, nil) else {
+            throw HEICComposerError.cannotRead(destination)
+        }
+        try verify(written, expected: values, width: width, height: height)
     }
 
-    private static func verify(_ url: URL, expected: [Float], width: Int, height: Int) throws {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let info = CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, kCGImageAuxiliaryDataTypeDisparity)
+    /// Photo depth with a correct label: `meters` stored as true disparity (1/m), keeping the original's
+    /// calibration and metadata. Used to fix what iOS 26 writes on iPhone 17 (meters labelled disparity).
+    static func trueDisparity(from original: AVDepthData, meters: [Float], width: Int, height: Int) throws -> AVDepthData {
+        try original.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
+            .replacingDepthDataMap(with: pixelBuffer(meters, width: width, height: height))
+            .converting(toDepthDataType: kCVPixelFormatType_DisparityFloat16)
+    }
+
+    /// Reads the depth of an encoded HEIC back and checks it against `expected` meters.
+    static func verify(data: Data, expected: [Float], width: Int, height: Int) throws {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            throw HEICComposerError.verificationFailed("nie można odczytać HEIC")
+        }
+        try verify(source, expected: expected, width: width, height: height)
+    }
+
+    private static func verify(_ source: CGImageSource, expected: [Float], width: Int, height: Int) throws {
+        guard let info = CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, kCGImageAuxiliaryDataTypeDisparity)
                 ?? CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, kCGImageAuxiliaryDataTypeDepth),
               let dictionary = info as? [AnyHashable: Any] else {
             throw HEICComposerError.verificationFailed("brak głębi po zapisie")
@@ -94,7 +112,7 @@ enum HEICComposer {
         }
     }
 
-    private static func pixelBuffer(_ values: [Float], width: Int, height: Int) throws -> CVPixelBuffer {
+    static func pixelBuffer(_ values: [Float], width: Int, height: Int) throws -> CVPixelBuffer {
         precondition(values.count == width * height, "values must be width*height")
         var buffer: CVPixelBuffer?
         guard CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_DepthFloat32, nil, &buffer) == kCVReturnSuccess,
