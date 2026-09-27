@@ -8,7 +8,10 @@ Panels (only those the capture has data for):
   1× single frame · 1× + bilateral · N× median · N× median + bilateral ·
   Apple-filtered photo depth · fusion (Apple shape + raw metric low frequencies)
 
-usage: uv run tools/view3d.py <capture folder or .zip> [-o out.html] [--open]
+usage: uv run tools/view3d.py <capture folder, .zip or .heic> [-o out.html] [--open]
+
+A .heic (e.g. from the Photos library) holds only one depth map, so it gets two panels
+(the map and the map + bilateral filter).
 
 The output contains a 3D model of the photographed face — keep it local.
 """
@@ -139,14 +142,16 @@ def roughness_mm(a: np.ndarray, region) -> float:
     return float(np.std(r) * 1000) if r.size else float("nan")
 
 
-def texture(folder: Path, work: Path) -> str:
+def texture(folder: Path, work: Path, photo: Path | None = None) -> str:
     out = work / "texture.jpg"
-    subprocess.run(["xcrun", "swift", str(TOOLS / "heic_pixels.swift"), str(folder / "photo.heic"), str(out),
+    subprocess.run(["xcrun", "swift", str(TOOLS / "heic_pixels.swift"), str(photo or folder / "photo.heic"), str(out),
                     str(TEXTURE_SIZE[0]), str(TEXTURE_SIZE[1])], check=True)
     return "data:image/jpeg;base64," + base64.b64encode(out.read_bytes()).decode()
 
 
 def resolve_capture(path: Path, work: Path) -> Path:
+    if path.suffix.lower() == ".heic":
+        return path
     if path.suffix == ".zip":
         with zipfile.ZipFile(path) as z:
             z.extractall(work)
@@ -157,6 +162,66 @@ def resolve_capture(path: Path, work: Path) -> Path:
     if not (path / "calibration.json").exists():
         sys.exit(f"{path}: not a capture folder (no calibration.json)")
     return path
+
+
+def depth_from_heic(photo: Path, work: Path) -> tuple[np.ndarray, dict, str]:
+    """Depth map (meters) embedded in a HEIC, plus its metadata and a note on how it was read.
+
+    iOS 26 on iPhone 17 stores front-camera depth in meters under a "disparity" label; the label is
+    trusted only when it gives a face-like distance (0.15–1.2 m) in the image center.
+    """
+    raw = work / "heic_depth.f32"
+    result = subprocess.run(["xcrun", "swift", str(TOOLS / "heic_depth.swift"), str(photo), str(raw)],
+                            check=True, capture_output=True, text=True)
+    info = json.loads(result.stdout.strip().splitlines()[-1])
+    w, h = info["width"], info["height"]
+    values = np.fromfile(raw, dtype="<f4").reshape(h, w)
+    center = values[h // 2 - 30:h // 2 + 30, w // 2 - 30:w // 2 + 30]
+    center = float(np.median(center[np.isfinite(center) & (center > 0)]))
+    as_labelled = 1 / center if info["label"] == "disparity" else center
+    if 0.15 <= as_labelled <= 1.2:
+        meters, note = (1 / values if info["label"] == "disparity" else values), f"etykieta {info['label']} poprawna"
+    elif 0.15 <= 1 / as_labelled <= 1.2:
+        meters = values if info["label"] == "disparity" else 1 / values
+        note = f"etykieta „{info['label']}” błędna — wartości odwrócone (błąd iOS)"
+    else:
+        sys.exit(f"{photo}: center value {center:.3f} does not look like a face at 0.15–1.2 m either way")
+    return np.where(np.isfinite(meters) & (meters > 0), meters, np.nan).astype(np.float32), info, note
+
+
+def build_from_heic(photo: Path, work: Path) -> dict:
+    depth, info, note = depth_from_heic(photo, work)
+    h, w = depth.shape
+    scale = w / max(info.get("refWidth", w), info.get("refHeight", h))
+    fx = info.get("fx", 0.7 * w / scale) * scale
+    panels = [(f"HEIC — głębia iOS ({info['accuracy']})", depth, note),
+              ("HEIC + filtr bilateralny", bilateral(depth), "")]
+    return assemble(panels, depth, fx, fx, w / 2, h / 2, None, texture(photo.parent, work, photo), photo.name)
+
+
+def assemble(panels, base, fx, fy, cx, cy, std, texture_url, title) -> dict:
+    h, w = base.shape
+    near = np.isfinite(base) & (base > NEAR) & (base < FAR)
+    ys, xs = np.nonzero(near)
+    x0, x1 = max(0, xs.min() - 8), min(w, xs.max() + 9)
+    y0, y1 = max(0, ys.min() - 8), min(h, ys.max() + 9)
+
+    def crop(a, keep_range=True):
+        c = a[y0:y1, x0:x1].astype(np.float32)
+        if keep_range:
+            c = np.where(np.isfinite(c) & (c > NEAR) & (c < FAR), c, np.nan).astype(np.float32)
+        return base64.b64encode(c.tobytes()).decode()
+
+    region = (h // 2 - 50, h // 2 + 50, w // 2 - 50, w // 2 + 50)
+    return dict(
+        cw=int(x1 - x0), ch=int(y1 - y0), x0=int(x0), y0=int(y0), fullW=w, fullH=h, fx=fx, fy=fy, cx=cx, cy=cy,
+        panels=[dict(title=t, depth=crop(a), rough=roughness_mm(a, region), note=note) for t, a, note in panels],
+        std=crop(std, keep_range=False) if std is not None else None,
+        stdMedianMm=float(np.nanmedian(std[region[0]:region[1], region[2]:region[3]]) * 1000) if std is not None else None,
+        texture=texture_url,
+        title=title,
+        filter=f"bilateralny: σ {SIGMA_SPACE_PX:g} px, σ głębi {SIGMA_RANGE_M * 1000:g} mm, promień {RADIUS_PX} px",
+    )
 
 
 def build(folder: Path, work: Path, ai_depths: list[tuple[str, Path]] = (), compact: bool = False) -> dict:
@@ -214,28 +279,7 @@ def build(folder: Path, work: Path, ai_depths: list[tuple[str, Path]] = (), comp
     fx, fy = k[0][0] * w / ref["width"], k[1][1] * h / ref["height"]
     cx, cy = k[0][2] * w / ref["width"], k[1][2] * h / ref["height"]
 
-    base = panels[0][1]
-    near = np.isfinite(base) & (base > NEAR) & (base < FAR)
-    ys, xs = np.nonzero(near)
-    x0, x1 = max(0, xs.min() - 8), min(w, xs.max() + 9)
-    y0, y1 = max(0, ys.min() - 8), min(h, ys.max() + 9)
-
-    def crop(a, keep_range=True):
-        c = a[y0:y1, x0:x1].astype(np.float32)
-        if keep_range:
-            c = np.where(np.isfinite(c) & (c > NEAR) & (c < FAR), c, np.nan).astype(np.float32)
-        return base64.b64encode(c.tobytes()).decode()
-
-    region = (h // 2 - 50, h // 2 + 50, w // 2 - 50, w // 2 + 50)
-    return dict(
-        cw=int(x1 - x0), ch=int(y1 - y0), x0=int(x0), y0=int(y0), fullW=w, fullH=h, fx=fx, fy=fy, cx=cx, cy=cy,
-        panels=[dict(title=t, depth=crop(a), rough=roughness_mm(a, region), note=note) for t, a, note in panels],
-        std=crop(std, keep_range=False) if std is not None else None,
-        stdMedianMm=float(np.nanmedian(std[region[0]:region[1], region[2]:region[3]]) * 1000) if std is not None else None,
-        texture=texture(folder, work),
-        title=folder.name,
-        filter=f"bilateralny: σ {SIGMA_SPACE_PX:g} px, σ głębi {SIGMA_RANGE_M * 1000:g} mm, promień {RADIUS_PX} px",
-    )
+    return assemble(panels, panels[0][1], fx, fy, cx, cy, std, texture(folder, work), folder.name)
 
 
 def main() -> None:
@@ -252,7 +296,12 @@ def main() -> None:
         folder = resolve_capture(args.capture, Path(tmp))
         ai = [(v.split("=", 1)[0], Path(v.split("=", 1)[1])) if "=" in v else (Path(v).stem, Path(v))
               for v in args.ai_depth]
-        data = build(folder, Path(tmp), ai, args.compact)
+        if folder.suffix.lower() == ".heic":
+            if ai:
+                sys.exit("--ai-depth needs a capture folder or .zip (streamed frames to align to)")
+            data = build_from_heic(folder, Path(tmp))
+        else:
+            data = build(folder, Path(tmp), ai, args.compact)
     out = args.output or Path(f"{data['title']}-3d.html")
     template = (TOOLS / "view3d_template.html").read_text()
     out.write_text(template.replace("__DATA__", json.dumps(data)))
