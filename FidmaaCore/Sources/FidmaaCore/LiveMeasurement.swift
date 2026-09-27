@@ -14,6 +14,11 @@ public struct Intrinsics: Equatable, Sendable {
         self.cy = cy
     }
 
+    /// Pixel (u, v) at `depth` meters → camera-space point (meters).
+    public func unproject(u: Float, v: Float, depth: Float) -> Point3 {
+        Point3(x: (u - cx) * depth / fx, y: (v - cy) * depth / fy, z: depth)
+    }
+
     /// Intrinsics given for `reference` dimensions, rescaled to a `width`×`height` grid.
     public static func scaled(fx: Float, fy: Float, cx: Float, cy: Float, reference: Size2D,
                               width: Int, height: Int) -> Intrinsics {
@@ -56,7 +61,29 @@ public enum ScreenMapping {
     }
 }
 
+public struct Point3: Equatable, Sendable {
+    public var x: Float
+    public var y: Float
+    public var z: Float
+
+    public init(x: Float, y: Float, z: Float) {
+        self.x = x
+        self.y = y
+        self.z = z
+    }
+
+    public var length: Float { (x * x + y * y + z * z).squareRoot() }
+
+    public static func - (a: Point3, b: Point3) -> Point3 { Point3(x: a.x - b.x, y: a.y - b.y, z: a.z - b.z) }
+}
+
 public enum FaceGeometry {
+    /// Straight-line 3D distance between two depth-grid pixels, each at its own depth — what a tape measures.
+    public static func distance3D(_ a: (u: Float, v: Float), depthA: Float, _ b: (u: Float, v: Float), depthB: Float,
+                                  intrinsics k: Intrinsics) -> Float {
+        (k.unproject(u: b.u, v: b.v, depth: depthB) - k.unproject(u: a.u, v: a.v, depth: depthA)).length
+    }
+
     /// Distance between two depth-grid pixels measured in the plane at `depth` (meters).
     /// Used for lip/teeth distances: sampling depth exactly at an opening's edge is unreliable.
     public static func lateralDistance(_ a: (u: Float, v: Float), _ b: (u: Float, v: Float),
@@ -101,6 +128,11 @@ public enum IncisorDetector {
     }
 
     public static func edges(_ profile: [PixelSample]) -> (upper: Int, lower: Int)? {
+        toothRuns(profile).map { ($0.upper.upperBound - 1, $0.lower.lowerBound) }
+    }
+
+    /// The upper and lower tooth runs (index ranges on the profile).
+    public static func toothRuns(_ profile: [PixelSample]) -> (upper: Range<Int>, lower: Range<Int>)? {
         let n = profile.count
         guard n >= 2 * minRun else { return nil }
         let tooth = classify(profile)
@@ -116,7 +148,7 @@ public enum IncisorDetector {
         guard let upper = runs.first(where: { $0.lowerBound < bandLength }),
               let lower = runs.last(where: { $0.upperBound > n - bandLength }),
               upper != lower, upper.upperBound <= lower.lowerBound else { return nil }
-        return (upper.upperBound - 1, lower.lowerBound)
+        return (upper, lower)
     }
 }
 

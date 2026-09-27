@@ -86,8 +86,10 @@ struct ContentView: View {
                         .background(.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
                     }
                     Spacer()
-                    ResultPanel(result: camera.lastResult, error: camera.lastError)
-                    controls
+                    if page == .camera {  // other pages only collect data
+                        ResultPanel(result: camera.lastResult, error: camera.lastError)
+                        controls
+                    }
                 }
                 .padding()
             }
@@ -101,7 +103,7 @@ struct ContentView: View {
             }
         }
         // Volume buttons, Camera Control and Bluetooth shutter remotes (which send "volume up") take a photo.
-        .onCameraCaptureEvent(isEnabled: !showsGallery) { event in
+        .onCameraCaptureEvent(isEnabled: !showsGallery && page == .camera) { event in
             if event.phase == .ended { takePhoto() }
         }
         .sheet(isPresented: $showsGallery) { GalleryView() }

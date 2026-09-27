@@ -136,3 +136,20 @@ private func profile(_ pattern: String) -> [PixelSample] {
     let p = [PixelSample(luma: 0.8, saturation: 0.1), PixelSample(luma: 0.1, saturation: 0.6)]
     #expect(IncisorDetector.classify(p) == [true, false])
 }
+
+@Test func distance3DIncludesDepthDifference() {
+    let k = Intrinsics(fx: 439, fy: 439, cx: 320, cy: 240)
+    // same pixel column, 50 px apart at 0.42 m (47.8 mm in-plane) plus 20 mm deeper lower point
+    let d = FaceGeometry.distance3D((u: 320, v: 200), depthA: 0.42, (u: 320, v: 250), depthB: 0.44, intrinsics: k)
+    let a = k.unproject(u: 320, v: 200, depth: 0.42), b = k.unproject(u: 320, v: 250, depth: 0.44)
+    #expect(abs(a.x) < 1e-6 && abs(a.z - 0.42) < 1e-6)
+    #expect(abs(d - (b - a).length) < 1e-6)
+    #expect(d > 0.050 && d < 0.056)
+}
+
+@Test func toothRunsAreReportedWithEdges() {
+    let p = profile(String(repeating: "T", count: 8) + String(repeating: ".", count: 24) + String(repeating: "T", count: 8))
+    let runs = IncisorDetector.toothRuns(p)
+    #expect(runs?.upper == 0..<8)
+    #expect(runs?.lower == 32..<40)
+}

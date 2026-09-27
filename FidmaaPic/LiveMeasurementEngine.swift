@@ -163,17 +163,24 @@ final class LiveMeasurementEngine {
         if let lo = profile.map(\.luma).min(), let hi = profile.map(\.luma).max() { state.profileLuma = lo...hi }
         let a: CGPoint
         let b: CGPoint
-        if let edges = IncisorDetector.edges(profile) {
-            a = frame.sensor(path[edges.upper])
-            b = frame.sensor(path[edges.lower])
+        let distance: Float
+        if let runs = IncisorDetector.toothRuns(profile) {
+            // Incisal edges, each at the depth of its own tooth surface (median along the tooth run —
+            // the edge pixel itself borders the cavity and its depth is unreliable). 3D, like a tape.
+            a = frame.sensor(path[runs.upper.upperBound - 1])
+            b = frame.sensor(path[runs.lower.lowerBound])
+            let upperDepth = frame.medianDepth(around: runs.upper.map { frame.sensor(path[$0]) }) ?? planeDepth
+            let lowerDepth = frame.medianDepth(around: runs.lower.map { frame.sensor(path[$0]) }) ?? planeDepth
+            distance = FaceGeometry.distance3D(frame.depthPixel(a), depthA: upperDepth,
+                                               frame.depthPixel(b), depthB: lowerDepth, intrinsics: frame.intrinsics)
             state.kind = .teeth
         } else {
             a = frame.sensor(upper)
             b = frame.sensor(lower)
+            distance = FaceGeometry.lateralDistance(frame.depthPixel(a), frame.depthPixel(b),
+                                                    depth: planeDepth, intrinsics: frame.intrinsics)
             state.kind = .lips
         }
-        let distance = FaceGeometry.lateralDistance(frame.depthPixel(a), frame.depthPixel(b),
-                                                    depth: planeDepth, intrinsics: frame.intrinsics)
         state.from = a
         state.to = b
         if state.kind == .lips && distance < Self.lipsOpenThreshold {
