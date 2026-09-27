@@ -127,15 +127,16 @@ public struct CaptureMetadata: Codable, Equatable, Sendable {
     public var calibration: CalibrationInfo?
     public var mattes: MatteFiles
     public var distanceAtCaptureMeters: Float?
+    public var stack: StackInfo?
 
     enum CodingKeys: String, CodingKey {
-        case captureDate, deviceModel, systemVersion, depth, image, calibration, mattes
+        case captureDate, deviceModel, systemVersion, depth, image, calibration, mattes, stack
         case distanceAtCaptureMeters = "distanceAtCapture_m"
     }
 
     public init(captureDate: Date, deviceModel: String, systemVersion: String, depth: DepthInfo?,
                 image: ImageInfo, calibration: CalibrationInfo?, mattes: MatteFiles,
-                distanceAtCaptureMeters: Float?) {
+                distanceAtCaptureMeters: Float?, stack: StackInfo? = nil) {
         self.captureDate = captureDate
         self.deviceModel = deviceModel
         self.systemVersion = systemVersion
@@ -144,6 +145,7 @@ public struct CaptureMetadata: Codable, Equatable, Sendable {
         self.calibration = calibration
         self.mattes = mattes
         self.distanceAtCaptureMeters = distanceAtCaptureMeters
+        self.stack = stack
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -156,26 +158,14 @@ public struct CaptureMetadata: Codable, Equatable, Sendable {
         try container.encode(calibration, forKey: .calibration)
         try container.encode(mattes, forKey: .mattes)
         try container.encode(distanceAtCaptureMeters, forKey: .distanceAtCaptureMeters)
+        try container.encode(stack, forKey: .stack)
     }
 
-    private static let positiveInfinity = "Infinity"
-    private static let negativeInfinity = "-Infinity"
-    private static let nan = "NaN"
-
     public func jsonData() throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.nonConformingFloatEncodingStrategy = .convertToString(
-            positiveInfinity: Self.positiveInfinity, negativeInfinity: Self.negativeInfinity, nan: Self.nan)
-        return try encoder.encode(self)
+        try FidmaaJSON.encode(self)
     }
 
     public static func decode(_ data: Data) throws -> CaptureMetadata {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        decoder.nonConformingFloatDecodingStrategy = .convertFromString(
-            positiveInfinity: positiveInfinity, negativeInfinity: negativeInfinity, nan: nan)
-        return try decoder.decode(CaptureMetadata.self, from: data)
+        try FidmaaJSON.decode(CaptureMetadata.self, from: data)
     }
 }
