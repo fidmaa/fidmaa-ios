@@ -59,6 +59,18 @@ points = np.column_stack([
 ])  # chmura punktów w metrach
 ```
 
+## Podgląd 3D na Macu
+
+```bash
+uv run tools/view3d.py ~/Dropbox/.../20260927-205915.zip --open
+```
+
+Tworzy lokalną stronę HTML (`<zdjęcie>-3d.html`) z modelem 3D w zsynchronizowanych panelach:
+pojedyncza klatka, filtr bilateralny, mediana z N klatek, mediana + filtr, a dla zdjęć zrobionych
+z „Wygładzona Apple” także mapę Apple i fuzję (kształt Apple + skala z surowych klatek).
+Tryby: cieniowanie, kolor wg głębi, szum między klatkami, tekstura zdjęcia.
+Plik zawiera model 3D twarzy — nie publikuj go.
+
 ## Testy
 
 Logika (mediana odległości, JSON, zapis float32, nazwy folderów) jest w pakiecie `FidmaaCore`:

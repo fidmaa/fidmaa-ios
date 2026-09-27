@@ -7,3 +7,4 @@ build/
 .superpowers/
 .build/
 .swiftpm/
+*-3d.html
