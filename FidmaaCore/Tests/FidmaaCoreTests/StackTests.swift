@@ -89,3 +89,10 @@ import Testing
     #expect(s["medianFile"] as? String == "depth_median.f32")
     #expect(try CaptureMetadata.decode(data) == metadata)
 }
+
+@Test func quaternionAngleToleratesNonUnitNorm() {
+    // CoreMotion quaternions are not exactly unit length; |q|² = 1 - 1e-7 gave 0.05° against itself.
+    let s = (1 - 1e-7).squareRoot()
+    let q = Quaternion(x: 0.1 * s, y: 0.2 * s, z: 0.3 * s, w: (1 - 0.14).squareRoot() * s)
+    #expect(MotionAlignment.angleDegrees(q, q) < 1e-4)
+}

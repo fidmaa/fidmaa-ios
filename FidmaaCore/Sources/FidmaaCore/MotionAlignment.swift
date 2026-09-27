@@ -14,9 +14,13 @@ public struct Quaternion: Equatable, Sendable {
 }
 
 public enum MotionAlignment {
-    /// Rotation angle between two unit quaternions, in degrees (q and -q are equal).
+    /// Rotation angle between two attitude quaternions, in degrees (q and -q are equal).
+    /// Normalizes first: CoreMotion quaternions deviate from unit length enough to matter near 0°.
     public static func angleDegrees(_ a: Quaternion, _ b: Quaternion) -> Double {
-        let dot = abs(a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w)
+        let norms = (a.x * a.x + a.y * a.y + a.z * a.z + a.w * a.w).squareRoot()
+            * (b.x * b.x + b.y * b.y + b.z * b.z + b.w * b.w).squareRoot()
+        guard norms > 0 else { return .nan }
+        let dot = abs(a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w) / norms
         return 2 * acos(min(1, dot)) * 180 / .pi
     }
 
