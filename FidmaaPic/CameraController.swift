@@ -90,7 +90,8 @@ final class CameraController: NSObject {
             let mode = measurementMode
             measurementModeLock.withLock { $0 = mode }
             measurement = MeasurementState(maxTeeth: measurement.maxTeeth, maxLips: measurement.maxLips,
-                                           maxNeck: measurement.maxNeck)
+                                           steadyThyroid: measurement.steadyThyroid,
+                                           steadyRecess: measurement.steadyRecess)
         }
     }
     var isDepthViewActive = false {
@@ -445,7 +446,8 @@ extension CameraController: AVCaptureDepthDataOutputDelegate, AVCaptureDataOutpu
               !video.sampleBufferWasDropped,
               let pixelBuffer = CMSampleBufferGetImageBuffer(video.sampleBuffer) else { return }
         measurementEngine.process(pixelBuffer: pixelBuffer, depth: frame, mode: mode,
-                                  rotationDegrees: displayRotationLock.withLock { $0 })
+                                  rotationDegrees: displayRotationLock.withLock { $0 },
+                                  gravity: motion.latestGravity())
     }
 
     /// Depth for the frame buffer, distance hint and depth view (depthQueue). Returns the Float32 frame.

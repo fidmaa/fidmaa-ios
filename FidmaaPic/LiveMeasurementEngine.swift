@@ -3,6 +3,7 @@ import CoreGraphics
 import FidmaaCore
 import os
 import QuartzCore
+import simd
 import Vision
 
 enum MeasurementMode: Equatable {
@@ -17,7 +18,10 @@ struct MeasurementState: Equatable {
     enum Kind: Equatable {
         case teeth
         case lips
-        case neck
+        /// Thyromental height to the thyroid cartilage prominence.
+        case thyroid
+        /// Fallback: chin to the submental recess (no thyroid prominence found).
+        case recess
     }
 
     var status: String?
@@ -26,7 +30,11 @@ struct MeasurementState: Equatable {
     var current: Float?
     var maxTeeth: Float?
     var maxLips: Float?
-    var maxNeck: Float?
+    /// Steady (2 s median) thyromental height and its recess fallback, meters.
+    var steadyThyroid: Float?
+    var steadyRecess: Float?
+    /// Camera pitch above the horizon (TMHT page), degrees.
+    var pitchDegrees: Double?
     var from: CGPoint?
     var to: CGPoint?
     var outline: [CGPoint] = []
@@ -55,14 +63,17 @@ final class LiveMeasurementEngine {
     // queue only
     private var teeth = PeakHold()
     private var lips = PeakHold()
-    private var neck = PeakHold()
-    private var lastMode = MeasurementMode.none
+    private var thyroidMedian = RollingMedian(window: 2)
+    private var recessMedian = RollingMedian(window: 2)
+    private var steadyThyroid: Float?
+    private var steadyRecess: Float?
 
     private static let logger = Logger(subsystem: "com.fidmaa.pic", category: "measure")
 
     /// Called for every synchronized frame while a measurement page is shown; throttled and dropped
     /// while the previous frame is still being analyzed.
-    func process(pixelBuffer: CVPixelBuffer, depth: DepthFrame, mode: MeasurementMode, rotationDegrees: Int) {
+    func process(pixelBuffer: CVPixelBuffer, depth: DepthFrame, mode: MeasurementMode, rotationDegrees: Int,
+                 gravity: (x: Double, y: Double, z: Double)?) {
         let now = CACurrentMediaTime()
         guard mode != .none, now - lastRun >= Self.interval else { return }
         guard busy.withLock({ wasBusy in
@@ -74,11 +85,9 @@ final class LiveMeasurementEngine {
         queue.async {
             defer { self.busy.withLock { $0 = false } }
             var state = self.analyze(pixelBuffer: pixelBuffer, depth: depth, mode: mode,
-                                     rotationDegrees: rotationDegrees)
-            // Maxima are read after the measurement updated them.
-            state.maxTeeth = self.teeth.maximum
-            state.maxLips = self.lips.maximum
-            state.maxNeck = self.neck.maximum
+                                     rotationDegrees: rotationDegrees, gravity: gravity, time: now)
+            // Held values are read after the measurement updated them.
+            self.fillHeld(&state)
             state.debug = "\(rotationDegrees)° · \(CVPixelBufferGetWidth(pixelBuffer))×\(CVPixelBufferGetHeight(pixelBuffer))"
                 + " · \(depth.width)×\(depth.height)"
                 + (state.profileLuma.map { String(format: " · luma %.2f–%.2f", $0.lowerBound, $0.upperBound) } ?? "")
@@ -93,22 +102,31 @@ final class LiveMeasurementEngine {
                 self.teeth.reset()
                 self.lips.reset()
             case .neck:
-                self.neck.reset()
+                self.thyroidMedian.reset()
+                self.recessMedian.reset()
+                self.steadyThyroid = nil
+                self.steadyRecess = nil
             case .none:
                 break
             }
             var state = MeasurementState()
-            state.maxTeeth = self.teeth.maximum
-            state.maxLips = self.lips.maximum
-            state.maxNeck = self.neck.maximum
+            self.fillHeld(&state)
             self.onUpdate?(state)
         }
+    }
+
+    private func fillHeld(_ state: inout MeasurementState) {
+        state.maxTeeth = teeth.maximum
+        state.maxLips = lips.maximum
+        state.steadyThyroid = steadyThyroid
+        state.steadyRecess = steadyRecess
     }
 
     // MARK: - Analysis (queue)
 
     private func analyze(pixelBuffer: CVPixelBuffer, depth: DepthFrame, mode: MeasurementMode,
-                         rotationDegrees: Int) -> MeasurementState {
+                         rotationDegrees: Int, gravity: (x: Double, y: Double, z: Double)?,
+                         time: CFTimeInterval) -> MeasurementState {
         var state = MeasurementState()
         guard let intrinsics = Self.intrinsics(depth) else {
             state.status = String(localized: "Brak kalibracji kamery")
@@ -131,7 +149,7 @@ final class LiveMeasurementEngine {
         let frame = Frame(pixelBuffer: pixelBuffer, depth: depth, intrinsics: intrinsics, rotation: rotationDegrees)
         switch mode {
         case .mouth: measureMouth(landmarks, frame: frame, state: &state)
-        case .neck: measureNeck(landmarks, frame: frame, state: &state)
+        case .neck: measureThyromental(landmarks, frame: frame, gravity: gravity, time: time, state: &state)
         case .none: break
         }
         return state
@@ -191,41 +209,110 @@ final class LiveMeasurementEngine {
         state.current = state.kind == .teeth ? teeth.add(distance) : lips.add(distance)
     }
 
-    private func measureNeck(_ landmarks: VNFaceLandmarks2D, frame: Frame, state: inout MeasurementState) {
-        guard let contour = landmarks.faceContour.map({ frame.upright($0) }), !contour.isEmpty,
-              let chin = contour.max(by: { $0.y < $1.y }) else {
-            state.status = String(localized: "Nie widzę brody")
+    /// Thyromental height for a patient sitting upright with the head supported: chin = most prominent
+    /// point on the face midline below the lower lip; thyroid cartilage = first forward bump past the
+    /// submental recess (fallback: the recess). Height along the horizontal measurement direction.
+    private func measureThyromental(_ landmarks: VNFaceLandmarks2D, frame: Frame,
+                                    gravity: (x: Double, y: Double, z: Double)?, time: CFTimeInterval,
+                                    state: inout MeasurementState) {
+        guard let leftEye = landmarks.leftEye.map({ frame.upright($0) }), !leftEye.isEmpty,
+              let rightEye = landmarks.rightEye.map({ frame.upright($0) }), !rightEye.isEmpty,
+              let noseCrest = landmarks.noseCrest.map({ frame.upright($0) }), !noseCrest.isEmpty,
+              let outerLips = landmarks.outerLips.map({ frame.upright($0) }), !outerLips.isEmpty,
+              let contour = landmarks.faceContour.map({ frame.upright($0) }), contour.count >= 3 else {
+            state.status = String(localized: "Nie widzę twarzy")
             return
         }
-        state.outline = contour.map(frame.sensor)
-        // Chin depth from just above the contour (inside the face).
-        let chinInside = CGPoint(x: chin.x, y: chin.y - 3 / Double(frame.depthUprightHeight))
-        let verticalFocal = frame.isSideways ? frame.intrinsics.fx : frame.intrinsics.fy
-        guard let chinDepth = frame.medianDepth(around: [frame.sensor(chinInside)]) else {
+        // Face axis in upright depth-grid pixels: between the eyes → nose tip.
+        let size = frame.depthUprightSize
+        func px(_ p: CGPoint) -> SIMD2<Double> { SIMD2(Double(p.x) * size.width, Double(p.y) * size.height) }
+        func centroid(_ pts: [CGPoint]) -> SIMD2<Double> { pts.map(px).reduce(.zero, +) / Double(pts.count) }
+        let eyes = (centroid(leftEye) + centroid(rightEye)) / 2
+        guard let noseTip = noseCrest.map(px).max(by: { simd_distance($0, eyes) < simd_distance($1, eyes) }),
+              simd_distance(noseTip, eyes) > 3 else {
+            state.status = String(localized: "Nie widzę twarzy")
+            return
+        }
+        let dir = simd_normalize(noseTip - eyes)
+        let perp = SIMD2(-dir.y, dir.x)
+        let across = contour.map { simd_dot(px($0) - eyes, perp) }
+        let faceWidth = (across.max() ?? 0) - (across.min() ?? 0)
+        let halfBand = max(2, 0.075 * faceWidth)
+        let lipBottom = outerLips.map { simd_dot(px($0) - eyes, dir) }.max() ?? 0
+        let contourBottom = contour.map { simd_dot(px($0) - eyes, dir) }.max() ?? 0
+
+        let h = gravity.map(MeasurementDirection.horizontal) ?? Point3(x: 0, y: 0, z: 1)
+        state.pitchDegrees = gravity.map(MeasurementDirection.pitchDegrees)
+        func upright(_ s: Double, _ l: Double) -> CGPoint {
+            let q = eyes + dir * s + perp * l
+            return CGPoint(x: q.x / size.width, y: q.y / size.height)
+        }
+        /// Surface position along the measurement direction at axis coordinates (s, l).
+        func surface(_ s: Double, _ l: Double) -> (value: Float, depth: Float)? {
+            let u = upright(s, l)
+            guard u.x >= 0, u.x < 1, u.y >= 0, u.y < 1 else { return nil }
+            let sensor = frame.sensor(u)
+            let z = frame.depthValue(sensor)
+            guard z.isFinite, z > 0 else { return nil }
+            let d = frame.depthPixel(sensor)
+            let p = MeasurementDirection.uprightCamera(fromSensor: frame.intrinsics.unproject(u: d.u, v: d.v, depth: z),
+                                                       rotationDegrees: frame.rotation)
+            return (p.dot(h), z)
+        }
+        func bandMedian(_ s: Double) -> Float? {
+            var values = stride(from: -halfBand, through: halfBand, by: 1).compactMap { surface(s, $0)?.value }
+            guard !values.isEmpty else { return nil }
+            values.sort()
+            return values[values.count / 2]
+        }
+
+        // Chin: most prominent point in the band between the lower lip and just past the face contour.
+        var chin: (s: Double, l: Double, value: Float, depth: Float)?
+        for s in stride(from: lipBottom + 2, through: contourBottom + 0.1 * faceWidth, by: 1) {
+            for l in stride(from: -halfBand, through: halfBand, by: 1) {
+                if let v = surface(s, l), v.value < (chin?.value ?? .infinity) { chin = (s, l, v.value, v.depth) }
+            }
+        }
+        state.outline = [upright(0, 0), upright(simd_dot(noseTip - eyes, dir), 0)].map(frame.sensor)
+        guard let chin else {
             state.status = String(localized: "Brak głębi na brodzie")
             return
         }
-        // Walk down (upright) one depth pixel at a time.
-        let maxSteps = Int(Double(NeckProfile.maxOffset) / Double(chinDepth) * Double(verticalFocal)) + 2
+        state.from = frame.sensor(upright(chin.s, chin.l))
+
+        // Neck profile along the axis below the chin.
+        let focal = Double(frame.isSideways ? frame.intrinsics.fx : frame.intrinsics.fy)
+        let pixelsPerMeter = focal / Double(chin.depth)
+        let steps = Int(Double(ThyromentalProfile.thyroidMaxOffset) * pixelsPerMeter) + 1
         var offsets: [Float] = []
-        var depths: [Float] = []
-        var points: [CGPoint] = []
-        for k in 0...maxSteps {
-            let p = CGPoint(x: chin.x, y: chin.y + Double(k) / Double(frame.depthUprightHeight))
-            guard p.y < 1 else { break }
-            let s = frame.sensor(p)
-            points.append(s)
-            offsets.append(Float(k) * chinDepth / verticalFocal)
-            depths.append(frame.depthValue(s))
+        var values: [Float] = []
+        for k in 0...steps {
+            offsets.append(Float(Double(k) / pixelsPerMeter))
+            values.append(bandMedian(chin.s + Double(k)).map { $0 - chin.value } ?? .nan)
         }
-        state.from = frame.sensor(chin)
-        guard let index = NeckProfile.deepest(offsetsMeters: offsets, depths: depths, chinDepth: chinDepth) else {
+        let result = ThyromentalProfile.analyze(offsetsMeters: offsets, values: values)
+        guard let index = result.thyroid ?? result.recess else {
             state.status = String(localized: "Nie widzę szyi — odchyl głowę lub opuść telefon")
             return
         }
-        state.to = points[index]
-        state.kind = .neck
-        state.current = neck.add(depths[index] - chinDepth)
+        state.to = frame.sensor(upright(chin.s + Double(index), 0))
+        state.kind = result.thyroid != nil ? .thyroid : .recess
+        state.current = values[index]
+
+        // The definition requires a closed mouth.
+        if let inner = landmarks.innerLips.map({ frame.upright($0) }), inner.count >= 4 {
+            let ys = inner.map { simd_dot(px($0) - eyes, dir) }
+            let opening = Float((ys.max() ?? 0) - (ys.min() ?? 0)) / Float(pixelsPerMeter)
+            if opening > Self.lipsOpenThreshold {
+                state.status = String(localized: "Zamknij usta")
+                return
+            }
+        }
+        if result.thyroid != nil {
+            steadyThyroid = thyroidMedian.add(values[index], at: time)
+        } else {
+            steadyRecess = recessMedian.add(values[index], at: time)
+        }
     }
 
     // MARK: - Helpers
@@ -269,8 +356,10 @@ private struct Frame {
     var uprightSize: CGSize {
         isSideways ? CGSize(width: bufferHeight, height: bufferWidth) : CGSize(width: bufferWidth, height: bufferHeight)
     }
-    /// Upright height in depth pixels.
-    var depthUprightHeight: Int { isSideways ? depth.width : depth.height }
+    /// Upright size in depth pixels.
+    var depthUprightSize: CGSize {
+        isSideways ? CGSize(width: depth.height, height: depth.width) : CGSize(width: depth.width, height: depth.height)
+    }
 
     /// Landmark region → upright-normalized points (top-left origin).
     func upright(_ region: VNFaceLandmarkRegion2D) -> [CGPoint] {

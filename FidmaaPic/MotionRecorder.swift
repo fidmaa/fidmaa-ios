@@ -13,6 +13,8 @@ final class MotionRecorder {
     private let manager = CMMotionManager()
     private let queue = OperationQueue()
     private let samples = OSAllocatedUnfairLock<[Sample]>(initialState: [])
+    /// Latest gravity in device coordinates (x right, y up, z out of the screen), in g.
+    private let gravity = OSAllocatedUnfairLock<(x: Double, y: Double, z: Double)?>(initialState: nil)
     /// Samples older than this (relative to the newest) are dropped.
     private let retention: Double = 2.0
     private static let logger = Logger(subsystem: "com.fidmaa.pic", category: "motion")
@@ -34,6 +36,7 @@ final class MotionRecorder {
                 return
             }
             guard let motion else { return }
+            self.gravity.withLock { $0 = (motion.gravity.x, motion.gravity.y, motion.gravity.z) }
             let q = motion.attitude.quaternion
             let sample = Sample(timestamp: motion.timestamp, attitude: Quaternion(x: q.x, y: q.y, z: q.z, w: q.w))
             self.samples.withLock { samples in
@@ -48,6 +51,10 @@ final class MotionRecorder {
 
     func stop() {
         manager.stopDeviceMotionUpdates()
+    }
+
+    func latestGravity() -> (x: Double, y: Double, z: Double)? {
+        gravity.withLock { $0 }
     }
 
     /// Sample closest to `timestamp`, or nil if none within `maxOffset` seconds.

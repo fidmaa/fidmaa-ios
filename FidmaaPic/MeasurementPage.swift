@@ -54,14 +54,15 @@ struct MeasurementPage: View {
         switch state.kind {
         case .teeth: .cyan
         case .lips: .pink
-        case .neck: .yellow
+        case .thyroid: .yellow
+        case .recess: .orange
         case nil: .white
         }
     }
 
     private var panel: some View {
         VStack(spacing: 6) {
-            Text(mode == .mouth ? LocalizedStringKey("Siekacze / otwarcie ust") : LocalizedStringKey("Bródkowo-gnykowy (oś Z)"))
+            Text(mode == .mouth ? LocalizedStringKey("Siekacze / otwarcie ust") : LocalizedStringKey("Thyromental height (TMHT)"))
                 .font(.headline)
             if !camera.isMeasurementAvailable {
                 Text("Pomiar niedostępny na tym urządzeniu").foregroundStyle(.orange)
@@ -69,7 +70,11 @@ struct MeasurementPage: View {
                 maxLine("MAKS zęby", state.maxTeeth, .cyan)
                 maxLine("MAKS wargi", state.maxLips, .pink)
             } else {
-                maxLine("MAKS", state.maxNeck, .yellow)
+                tmhtLine
+                if let pitch = state.pitchDegrees, isActive {
+                    Text("pochylenie telefonu \(Int(pitch.rounded()))°").font(.caption)
+                }
+                Text("Głowa oparta, usta zamknięte, telefon na wprost").font(.caption2).foregroundStyle(.secondary)
             }
             if isActive, let current = state.current {
                 Text("teraz \(millimeters(current))\(kindLabel)")
@@ -89,6 +94,29 @@ struct MeasurementPage: View {
         .allowsHitTesting(false)
     }
 
+    /// Steady TMHT; below 50 mm (Etezadi) shown in red. Without a thyroid prominence: the recess fallback.
+    @ViewBuilder private var tmhtLine: some View {
+        if let value = state.steadyThyroid {
+            HStack(alignment: .firstTextBaseline) {
+                Text("TMHT").font(.subheadline).foregroundStyle(.yellow)
+                Text(millimeters(value))
+                    .font(.system(size: 40, weight: .bold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(value < 0.050 ? .red : .green)
+            }
+        } else if let value = state.steadyRecess {
+            HStack(alignment: .firstTextBaseline) {
+                Text("bródkowo-gnykowy (zastępczo)").font(.subheadline).foregroundStyle(.orange)
+                Text(millimeters(value)).font(.system(size: 32, weight: .bold, design: .rounded).monospacedDigit())
+            }
+            Text("nie znaleziono chrząstki tarczowatej").font(.caption).foregroundStyle(.orange)
+        } else {
+            HStack(alignment: .firstTextBaseline) {
+                Text("TMHT").font(.subheadline).foregroundStyle(.yellow)
+                Text("—").font(.system(size: 40, weight: .bold, design: .rounded))
+            }
+        }
+    }
+
     private func maxLine(_ label: LocalizedStringKey, _ value: Float?, _ color: Color) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text(label).font(.subheadline).foregroundStyle(color)
@@ -101,7 +129,9 @@ struct MeasurementPage: View {
         switch state.kind {
         case .teeth: String(localized: " (zęby)")
         case .lips: String(localized: " (wargi)")
-        case .neck, nil: ""
+        case .thyroid: String(localized: " (chrząstka)")
+        case .recess: String(localized: " (zagłębienie)")
+        case nil: ""
         }
     }
 

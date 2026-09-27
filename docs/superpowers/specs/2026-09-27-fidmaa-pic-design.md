@@ -194,3 +194,15 @@ najgłębszym punktem pod brodą. Wynik: maksimum trzymane na ekranie, stuknięc
 ### Ryzyka
 - Kolorystyczne wykrywanie zębów (światło, język) — zawsze rysujemy wykryte brzegi.
 - Szyja z przodu bywa zasłonięta brodą — status „nie widzę szyi” zamiast zgadywania.
+
+### Zmiana 2026-09-27 (noc): ekran 2 = thyromental height (TMHT)
+Definicja (Etezadi 2013): wysokość między przednim punktem bródki a przednim punktem chrząstki
+tarczowatej; w oryginale pacjent na plecach, usta zamknięte, głębokościomierz. U nas pacjent w pionie,
+głowa/potylica oparta — kierunek pomiaru = **poziomy** (oś aparatu bez składowej pionowej z grawitacji).
+- Oś twarzy: środek między oczami → czubek nosa; pas ±7,5% szerokości twarzy wokół osi.
+- Bródka: najbardziej wystający punkt w pasie poniżej dolnej wargi (min rzutu na kierunek pomiaru).
+- Chrząstka tarczowata: pierwsze lokalne wysunięcie za zagłębieniem pod brodą (≥ 3 mm przed dnem
+  zagłębienia, dalej profil cofa się ≥ 1,5 mm), do 12 cm poniżej bródki.
+- Brak chrząstki → wynik do dna zagłębienia, oznaczony „bródkowo-gnykowy (zastępczo)”.
+- Otwarte usta → ostrzeżenie „zamknij usta”; pokazujemy pochylenie telefonu.
+- MAKS osobno dla TMHT i wyniku zastępczego; stuknięcie kasuje.

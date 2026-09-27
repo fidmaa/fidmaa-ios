@@ -2,12 +2,32 @@
   "sourceLanguage": "pl",
   "version": "1.0",
   "strings": {
+    " (chrząstka)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (cartilage)"
+          }
+        }
+      }
+    },
     " (wargi)": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": " (lips)"
+          }
+        }
+      }
+    },
+    " (zagłębienie)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (recess)"
           }
         }
       }
@@ -182,26 +202,6 @@
         }
       }
     },
-    "Bródkowo-gnykowy": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mentohyoid"
-          }
-        }
-      }
-    },
-    "Bródkowo-gnykowy (oś Z)": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mentohyoid (Z axis)"
-          }
-        }
-      }
-    },
     "Błąd wykrywania twarzy": {
       "localizations": {
         "en": {
@@ -228,6 +228,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Photo gallery"
+          }
+        }
+      }
+    },
+    "Głowa oparta, usta zamknięte, telefon na wprost": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Head supported, mouth closed, phone facing the patient"
           }
         }
       }
@@ -318,16 +328,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Frames averaged: %lld/%lld"
-          }
-        }
-      }
-    },
-    "MAKS": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "MAX"
           }
         }
       }
@@ -502,16 +502,6 @@
         }
       }
     },
-    "Nie widzę brody": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chin not found"
-          }
-        }
-      }
-    },
     "Nie widzę szyi — odchyl głowę lub opuść telefon": {
       "localizations": {
         "en": {
@@ -632,6 +622,26 @@
         }
       }
     },
+    "TMHT": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TMHT"
+          }
+        }
+      }
+    },
+    "Thyromental height (TMHT)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thyromental height (TMHT)"
+          }
+        }
+      }
+    },
     "To urządzenie nie ma przedniej kamery TrueDepth.": {
       "localizations": {
         "en": {
@@ -732,6 +742,16 @@
         }
       }
     },
+    "Zamknij usta": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close the mouth"
+          }
+        }
+      }
+    },
     "Zapisano: %@": {
       "localizations": {
         "en": {
@@ -812,6 +832,16 @@
         }
       }
     },
+    "bródkowo-gnykowy (zastępczo)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hyomental (fallback)"
+          }
+        }
+      }
+    },
     "dokładność inna niż absolute po zapisie": {
       "localizations": {
         "en": {
@@ -842,6 +872,26 @@
         }
       }
     },
+    "nie znaleziono chrząstki tarczowatej": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "thyroid cartilage not found"
+          }
+        }
+      }
+    },
+    "pochylenie telefonu %lld°": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "phone pitch %lld°"
+          }
+        }
+      }
+    },
     "stuknij, aby wyzerować": {
       "localizations": {
         "en": {
@@ -858,6 +908,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "now %@%@"
+          }
+        }
+      }
+    },
+    "—": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "—"
           }
         }
       }

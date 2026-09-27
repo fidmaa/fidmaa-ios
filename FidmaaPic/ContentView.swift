@@ -11,7 +11,7 @@ private enum Page: Hashable, CaseIterable {
 
     var title: LocalizedStringKey {
         switch self {
-        case .neck: "Bródkowo-gnykowy"
+        case .neck: "TMHT"
         case .mouth: "Siekacze / usta"
         case .camera: "Aparat"
         case .depth: "Głębia"
