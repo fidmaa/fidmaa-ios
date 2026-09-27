@@ -27,8 +27,8 @@ TOOLS = Path(__file__).resolve().parent
 SIGMA_SPACE_PX = 2.0     # bilateral: spatial Gaussian
 SIGMA_RANGE_M = 0.002    # bilateral: depth steps above ~2 mm are edges and are not blended
 RADIUS_PX = 4
-FUSION_SIGMA_PX = 15.0   # fusion: raw−Apple difference is kept only at scales above this
-FUSION_MAX_DIFF_M = 0.02
+FUSION_SIGMA_PX = 8.0    # fusion: raw−guide difference is kept at scales above this (~6 mm on a face at 35 cm)
+FUSION_MAX_DIFF_M = 0.06  # larger differences are outliers (edges), not shape
 NEAR, FAR = 0.2, 0.6     # meters kept in the view
 TEXTURE_SIZE = (1280, 960)
 
@@ -78,6 +78,28 @@ def fuse(apple: np.ndarray, reference: np.ndarray) -> tuple[np.ndarray, dict]:
     return fused.astype(np.float32), stats
 
 
+def align_disparity(ai: np.ndarray, reference: np.ndarray) -> tuple[np.ndarray, dict]:
+    """Fit 1/reference ≈ a·(1/ai) + b on the subject (robust, trimmed), return the aligned AI depth."""
+    h, w = reference.shape
+    center = np.nanmedian(reference[h // 2 - 30:h // 2 + 30, w // 2 - 30:w // 2 + 30])
+    mask = (np.isfinite(ai) & (ai > 0) & np.isfinite(reference) & (reference > NEAR) & (reference < FAR)
+            & (np.abs(reference - center) < 0.15))
+    x, y = 1 / ai[mask], 1 / reference[mask]
+    keep = np.ones_like(x, dtype=bool)
+    for _ in range(4):
+        a, b = np.polyfit(x[keep], y[keep], 1)
+        residual = y - (a * x + b)
+        mad = np.median(np.abs(residual[keep] - np.median(residual[keep])))
+        keep = np.abs(residual) < 3 * 1.4826 * mad
+    aligned = np.where(np.isfinite(ai) & (ai > 0), 1 / (a / ai + b), np.nan).astype(np.float32)
+    before = (ai - reference)[mask]
+    after = (aligned - reference)[mask]
+    stats = dict(beforeMeanMm=float(np.mean(before) * 1000), beforeSdMm=float(np.std(before) * 1000),
+                 afterMeanMm=float(np.mean(after) * 1000), afterSdMm=float(np.std(after) * 1000),
+                 scale=float(a), offset=float(b), pixels=int(mask.sum()))
+    return aligned, stats
+
+
 def roughness_mm(a: np.ndarray, region) -> float:
     y0, y1, x0, x1 = region
     c = a[y0:y1, x0:x1]
@@ -106,7 +128,7 @@ def resolve_capture(path: Path, work: Path) -> Path:
     return path
 
 
-def build(folder: Path, work: Path) -> dict:
+def build(folder: Path, work: Path, ai_depth: Path | None = None) -> dict:
     meta = json.loads((folder / "calibration.json").read_text())
     depth_info = meta["depth"]
     w, h = depth_info["width"], depth_info["height"]
@@ -135,6 +157,21 @@ def build(folder: Path, work: Path) -> dict:
                            f"Apple vs surowa: średnio {s['meanDiffMm']:+.2f} mm, sd {s['sdDiffMm']:.2f} mm"))
     elif not panels:
         panels.append(("Głębia zdjęcia (surowa)", photo, ""))
+    if ai_depth is not None:
+        if reference is None:
+            sys.exit("AI panels need streamed frames in the capture (a reference to align to)")
+        ai = np.fromfile(ai_depth, dtype="<f4").reshape(h, w)
+        aligned, _ = align_disparity(ai, reference)
+        fused_ai, _ = fuse(aligned, reference)
+        face = (slice(h // 2 - 50, h // 2 + 50), slice(w // 2 - 50, w // 2 + 50))
+
+        def vs_measured(a):
+            d = (a - reference)[face]
+            d = d[np.isfinite(d)]
+            return f"środek twarzy vs pomiar: średnio {np.mean(d) * 1000:+.1f} mm, sd {np.std(d) * 1000:.1f} mm"
+
+        panels.append(("AI (Depth Pro, samo RGB), dopasowana", aligned, vs_measured(aligned)))
+        panels.append(("Fuzja: pomiar (duże skale) + AI (detal)", fused_ai, vs_measured(fused_ai)))
 
     cal = meta.get("depthMapCalibration") or meta["calibration"]
     k, ref = cal["intrinsicMatrix"], cal["intrinsicMatrixReferenceDimensions"]
@@ -170,10 +207,11 @@ def main() -> None:
     parser.add_argument("capture", type=Path, help="capture folder or its .zip")
     parser.add_argument("-o", "--output", type=Path, help="output HTML (default: <capture>-3d.html in cwd)")
     parser.add_argument("--open", action="store_true", help="open in the default browser")
+    parser.add_argument("--ai-depth", type=Path, help="Float32 map from tools/depth_ai.py (adds AI panels)")
     args = parser.parse_args()
     with tempfile.TemporaryDirectory() as tmp:
         folder = resolve_capture(args.capture, Path(tmp))
-        data = build(folder, Path(tmp))
+        data = build(folder, Path(tmp), args.ai_depth)
     out = args.output or Path(f"{data['title']}-3d.html")
     template = (TOOLS / "view3d_template.html").read_text()
     out.write_text(template.replace("__DATA__", json.dumps(data)))

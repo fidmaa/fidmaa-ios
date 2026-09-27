@@ -71,6 +71,19 @@ z „Wygładzona Apple” także mapę Apple i fuzję (kształt Apple + skala z 
 Tryby: cieniowanie, kolor wg głębi, szum między klatkami, tekstura zdjęcia.
 Plik zawiera model 3D twarzy — nie publikuj go.
 
+Panele AI (Apple Depth Pro — głębia liczona z samego zdjęcia RGB, dopasowana do pomiaru):
+
+```bash
+# jednorazowo: środowisko z Depth Pro i wagami (~1,9 GB) w dowolnym katalogu roboczym
+uv venv --python 3.11 .venv && uv pip install --python .venv/bin/python "git+https://github.com/apple/ml-depth-pro.git" huggingface_hub pillow
+.venv/bin/python -c "from huggingface_hub import hf_hub_download; hf_hub_download('apple/DepthPro','depth_pro.pt',local_dir='checkpoints')"
+# dla każdego zdjęcia (w katalogu z checkpoints/):
+.venv/bin/python <repo>/tools/depth_ai.py <folder zdjęcia> ai.f32
+uv run <repo>/tools/view3d.py <folder zdjęcia> --ai-depth ai.f32 --open
+```
+
+Szczegóły z AI są wnioskowane z wyglądu, nie zmierzone — podpis panelu podaje różnicę względem pomiaru.
+
 ## Testy
 
 Logika (mediana odległości, JSON, zapis float32, nazwy folderów) jest w pakiecie `FidmaaCore`:
