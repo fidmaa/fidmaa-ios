@@ -49,6 +49,9 @@ enum CaptureConfig {
     static let depthViewUpdateInterval: CFTimeInterval = 1.0 / 15
     /// The selfie preview is mirrored; mirror the depth view the same way.
     static let depthViewMirrored = true
+    /// Extra clockwise rotation (screen space, before mirroring) found on iPhone 17: without it the
+    /// depth view was 90° clockwise off from the camera preview.
+    static let depthViewExtraRotation: CGFloat = 90
 }
 
 /// Streamed depth frames plus matching motion samples, taken at the shutter.
