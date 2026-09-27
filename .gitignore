@@ -5,3 +5,5 @@ DerivedData/
 .DS_Store
 build/
 .superpowers/
+.build/
+.swiftpm/
