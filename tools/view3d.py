@@ -83,11 +83,11 @@ def fuse(apple: np.ndarray, reference: np.ndarray) -> tuple[np.ndarray, dict]:
     usable = both & (np.abs(diff) < FUSION_MAX_DIFF_M)
     correction = normalized_blur(np.where(usable, diff, 0.0), usable, FUSION_SIGMA_PX)
     fused = np.where(np.isfinite(apple) & (apple > 0), apple + np.nan_to_num(correction), np.nan)
-    stats = dict(
-        meanDiffMm=float(np.mean(diff[usable]) * 1000),
-        sdDiffMm=float(np.std(diff[usable]) * 1000),
-        usedFraction=float(usable.sum() / max(both.sum(), 1)),
-    )
+    stats = {
+        "meanDiffMm": float(np.mean(diff[usable]) * 1000),
+        "sdDiffMm": float(np.std(diff[usable]) * 1000),
+        "usedFraction": float(usable.sum() / max(both.sum(), 1)),
+    }
     return fused.astype(np.float32), stats
 
 
@@ -118,7 +118,7 @@ def fuse_ai(
         gain = 0.0
     fused = blur(measured_smooth, AI_SPLIT_SIGMA_PX) + gain * (ai - blur(ai, AI_SPLIT_SIGMA_PX))
     fused = np.where(np.isfinite(ai) & (ai > 0), fused, np.nan).astype(np.float32)
-    return fused, dict(gain=gain, correlation=correlation)
+    return fused, {"gain": gain, "correlation": correlation}
 
 
 def align_disparity(ai: np.ndarray, reference: np.ndarray) -> tuple[np.ndarray, dict]:
@@ -148,15 +148,15 @@ def align_disparity(ai: np.ndarray, reference: np.ndarray) -> tuple[np.ndarray, 
     )
     before = (ai - reference)[mask]
     after = (aligned - reference)[mask]
-    stats = dict(
-        beforeMeanMm=float(np.mean(before) * 1000),
-        beforeSdMm=float(np.std(before) * 1000),
-        afterMeanMm=float(np.mean(after) * 1000),
-        afterSdMm=float(np.std(after) * 1000),
-        scale=float(a),
-        offset=float(b),
-        pixels=int(mask.sum()),
-    )
+    stats = {
+        "beforeMeanMm": float(np.mean(before) * 1000),
+        "beforeSdMm": float(np.std(before) * 1000),
+        "afterMeanMm": float(np.mean(after) * 1000),
+        "afterSdMm": float(np.std(after) * 1000),
+        "scale": float(a),
+        "offset": float(b),
+        "pixels": int(mask.sum()),
+    }
     return aligned, stats
 
 
@@ -282,24 +282,26 @@ def assemble(panels, base, fx, fy, cx, cy, std, texture_url, title, face: np.nda
             c = np.where(np.isfinite(c) & (c > NEAR) & (c < FAR), c, np.nan).astype(np.float32)
         return base64.b64encode(c.tobytes()).decode()
 
-    return dict(
-        cw=int(x1 - x0),
-        ch=int(y1 - y0),
-        x0=int(x0),
-        y0=int(y0),
-        fullW=w,
-        fullH=h,
-        fx=fx,
-        fy=fy,
-        cx=cx,
-        cy=cy,
-        panels=[dict(title=t, depth=crop(a), rough=roughness_mm(a, face), note=note) for t, a, note in panels],
-        std=crop(std, keep_range=False) if std is not None else None,
-        stdMedianMm=float(np.nanmedian(std[face]) * 1000) if std is not None else None,
-        texture=texture_url,
-        title=title,
-        filter=f"bilateralny: σ {SIGMA_SPACE_PX:g} px, σ głębi {SIGMA_RANGE_M * 1000:g} mm, promień {RADIUS_PX} px",
-    )
+    return {
+        "cw": int(x1 - x0),
+        "ch": int(y1 - y0),
+        "x0": int(x0),
+        "y0": int(y0),
+        "fullW": w,
+        "fullH": h,
+        "fx": fx,
+        "fy": fy,
+        "cx": cx,
+        "cy": cy,
+        "panels": [
+            {"title": t, "depth": crop(a), "rough": roughness_mm(a, face), "note": note} for t, a, note in panels
+        ],
+        "std": crop(std, keep_range=False) if std is not None else None,
+        "stdMedianMm": float(np.nanmedian(std[face]) * 1000) if std is not None else None,
+        "texture": texture_url,
+        "title": title,
+        "filter": f"bilateralny: σ {SIGMA_SPACE_PX:g} px, σ głębi {SIGMA_RANGE_M * 1000:g} mm, promień {RADIUS_PX} px",
+    }
 
 
 def build(folder: Path, work: Path, ai_depths: list[tuple[str, Path]] = (), compact: bool = False) -> dict:
