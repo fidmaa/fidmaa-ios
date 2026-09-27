@@ -98,6 +98,44 @@ public enum ThyromentalProfile {
     }
 }
 
+extension ThyromentalProfile {
+    /// Band below the menton where the thyroid cartilage usually lies (user's clinical choice: 3–6 cm).
+    public static let surfaceBand: ClosedRange<Float> = 0.03...0.06
+
+    /// Anterior neck surface at thyroid level when no thyroid prominence is visible (e.g. a fatty neck):
+    /// the median of the profile over `surfaceBand`, stopping at background/long gaps like `analyze`.
+    /// Needs more than half of the band's samples valid and a plausible height (≥ `minHeight`).
+    public static func neckSurface(offsetsMeters: [Float], values: [Float]) -> (index: Int, value: Float)? {
+        precondition(offsetsMeters.count == values.count, "one value per offset")
+        var band: [Float] = []
+        var previous: Float?
+        var holes = 0
+        for (i, offset) in offsetsMeters.enumerated() {
+            if offset > surfaceBand.upperBound { break }
+            let inBand = surfaceBand.contains(offset)
+            let v = values[i]
+            guard v.isFinite else {
+                holes += 1
+                if holes > maxHoles { break }
+                continue
+            }
+            holes = 0
+            if let p = previous, abs(v - p) > backgroundJump { break }
+            previous = v
+            if inBand { band.append(v) }
+        }
+        let expected = offsetsMeters.filter { surfaceBand.contains($0) }.count
+        guard expected > 0, band.count * 2 > expected else { return nil }
+        band.sort()
+        let median = band[band.count / 2]
+        guard median >= minHeight else { return nil }
+        let middle = (surfaceBand.lowerBound + surfaceBand.upperBound) / 2
+        guard let index = offsetsMeters.indices.min(by: { abs(offsetsMeters[$0] - middle) < abs(offsetsMeters[$1] - middle) })
+        else { return nil }
+        return (index, median)
+    }
+}
+
 /// Median of the values seen during the last `window` seconds — a steady readout for static measures.
 public struct RollingMedian: Sendable {
     public let window: Double

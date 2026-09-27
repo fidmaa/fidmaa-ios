@@ -59,7 +59,7 @@ struct MeasurementPage: View {
         case .teeth: .cyan
         case .lips: .pink
         case .thyroid: .yellow
-        case .recess: .orange
+        case .neckSurface: .orange
         case nil: .white
         }
     }
@@ -107,12 +107,15 @@ struct MeasurementPage: View {
                     .font(.system(size: 40, weight: .bold, design: .rounded).monospacedDigit())
                     .foregroundStyle(value < 0.050 ? .red : .green)
             }
-        } else if let value = state.steadyRecess {
+        } else if let value = state.steadySurface {
             HStack(alignment: .firstTextBaseline) {
-                Text("bródkowo-gnykowy (zastępczo)").font(.subheadline).foregroundStyle(.orange)
-                Text(millimeters(value)).font(.system(size: 32, weight: .bold, design: .rounded).monospacedDigit())
+                Text("TMHT").font(.subheadline).foregroundStyle(.orange)
+                Text(millimeters(value))
+                    .font(.system(size: 40, weight: .bold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(value < 0.050 ? .red : .green)
             }
-            Text("nie znaleziono chrząstki tarczowatej").font(.caption).foregroundStyle(.orange)
+            Text("do przedniej powierzchni szyi (3–6 cm pod brodą) — chrząstka niewidoczna")
+                .font(.caption).foregroundStyle(.orange)
         } else {
             HStack(alignment: .firstTextBaseline) {
                 Text("TMHT").font(.subheadline).foregroundStyle(.yellow)
@@ -134,7 +137,7 @@ struct MeasurementPage: View {
         case .teeth: String(localized: " (zęby)")
         case .lips: String(localized: " (wargi)")
         case .thyroid: String(localized: " (chrząstka)")
-        case .recess: String(localized: " (zagłębienie)")
+        case .neckSurface: String(localized: " (powierzchnia szyi)")
         case nil: ""
         }
     }

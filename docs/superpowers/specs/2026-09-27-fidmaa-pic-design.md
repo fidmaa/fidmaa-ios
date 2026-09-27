@@ -203,6 +203,6 @@ głowa/potylica oparta — kierunek pomiaru = **poziomy** (oś aparatu bez skła
 - Bródka: najbardziej wystający punkt w pasie poniżej dolnej wargi (min rzutu na kierunek pomiaru).
 - Chrząstka tarczowata: pierwsze lokalne wysunięcie za zagłębieniem pod brodą (≥ 3 mm przed dnem
   zagłębienia, dalej profil cofa się ≥ 1,5 mm), do 12 cm poniżej bródki.
-- Brak chrząstki → wynik do dna zagłębienia, oznaczony „bródkowo-gnykowy (zastępczo)”.
+- Brak widocznej chrząstki → wynik do przedniej powierzchni szyi: mediana profilu 3–6 cm pod dołem brody (decyzja użytkownika; wysokość chrząstki u osób z tłustą szyją). Profile uśredniane ~1 s przed wyborem punktów; wynik po ustabilizowaniu.
 - Otwarte usta → ostrzeżenie „zamknij usta”; pokazujemy pochylenie telefonu.
 - MAKS osobno dla TMHT i wyniku zastępczego; stuknięcie kasuje.

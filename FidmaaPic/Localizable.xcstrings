@@ -12,22 +12,22 @@
         }
       }
     },
+    " (powierzchnia szyi)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (neck surface)"
+          }
+        }
+      }
+    },
     " (wargi)": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": " (lips)"
-          }
-        }
-      }
-    },
-    " (zagłębienie)": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": " (recess)"
           }
         }
       }
@@ -852,12 +852,12 @@
         }
       }
     },
-    "bródkowo-gnykowy (zastępczo)": {
+    "do przedniej powierzchni szyi (3–6 cm pod brodą) — chrząstka niewidoczna": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "hyomental (fallback)"
+            "value": "to the anterior neck surface (3–6 cm below the chin) — cartilage not visible"
           }
         }
       }
@@ -888,16 +888,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "cannot read the HEIC"
-          }
-        }
-      }
-    },
-    "nie znaleziono chrząstki tarczowatej": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "thyroid cartilage not found"
           }
         }
       }

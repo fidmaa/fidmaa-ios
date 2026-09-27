@@ -19,8 +19,8 @@ struct MeasurementState: Equatable {
         case lips
         /// Thyromental height to the thyroid cartilage prominence.
         case thyroid
-        /// Fallback: chin to the submental recess (no thyroid prominence found).
-        case recess
+        /// No visible thyroid prominence: chin to the anterior neck surface 3–6 cm below the menton.
+        case neckSurface
     }
 
     var status: String?
@@ -29,9 +29,9 @@ struct MeasurementState: Equatable {
     var current: Float?
     var maxTeeth: Float?
     var maxLips: Float?
-    /// Steady (2 s median) thyromental height and its recess fallback, meters.
+    /// Steady (2 s median) thyromental height to the thyroid prominence, or to the anterior neck surface, meters.
     var steadyThyroid: Float?
-    var steadyRecess: Float?
+    var steadySurface: Float?
     /// Camera pitch above the horizon (TMHT page), degrees.
     var pitchDegrees: Double?
     var from: CGPoint?
@@ -86,9 +86,9 @@ final class LiveMeasurementEngine {
     private var teeth = PeakHold()
     private var lips = PeakHold()
     private var thyroidMedian = RollingMedian(window: 2)
-    private var recessMedian = RollingMedian(window: 2)
+    private var surfaceMedian = RollingMedian(window: 2)
     private var steadyThyroid: Float?
-    private var steadyRecess: Float?
+    private var steadySurface: Float?
 
     private static let logger = Logger(subsystem: "com.fidmaa.pic", category: "measure")
 
@@ -125,9 +125,9 @@ final class LiveMeasurementEngine {
                 self.lips.reset()
             case .neck:
                 self.thyroidMedian.reset()
-                self.recessMedian.reset()
+                self.surfaceMedian.reset()
                 self.steadyThyroid = nil
-                self.steadyRecess = nil
+                self.steadySurface = nil
             case .none:
                 break
             }
@@ -141,7 +141,7 @@ final class LiveMeasurementEngine {
         state.maxTeeth = teeth.maximum
         state.maxLips = lips.maximum
         state.steadyThyroid = steadyThyroid
-        state.steadyRecess = steadyRecess
+        state.steadySurface = steadySurface
     }
 
     // MARK: - Analysis (queue)
@@ -398,12 +398,15 @@ final class LiveMeasurementEngine {
                               "noseCrest": pts(landmarks.noseCrest)],
             ]
         }
-        guard let index = result.thyroid ?? result.recess else {
+        // Thyroid prominence if visible; otherwise the anterior neck surface at thyroid level (3–6 cm).
+        let surface = result.thyroid == nil ? ThyromentalProfile.neckSurface(offsetsMeters: offsets, values: values) : nil
+        guard let index = result.thyroid ?? surface?.index,
+              let height = result.thyroid.map({ values[$0] }) ?? surface?.value else {
             state.status = String(localized: "Nie widzę szyi — odchyl głowę lub opuść telefon")
             return
         }
         state.to = frame.sensor(upright(menton + Double(index), 0))
-        state.kind = result.thyroid != nil ? .thyroid : .recess
+        state.kind = result.thyroid != nil ? .thyroid : .neckSurface
 
         // The definition requires a closed mouth.
         if let inner = landmarks.innerLips.map({ frame.upright($0) }), inner.count >= 4 {
@@ -421,11 +424,11 @@ final class LiveMeasurementEngine {
             state.status = String(localized: "Trzymaj nieruchomo — stabilizuję")
             return
         }
-        state.current = values[index]
+        state.current = height
         if result.thyroid != nil {
-            steadyThyroid = thyroidMedian.add(values[index], at: time)
+            steadyThyroid = thyroidMedian.add(height, at: time)
         } else {
-            steadyRecess = recessMedian.add(values[index], at: time)
+            steadySurface = surfaceMedian.add(height, at: time)
         }
     }
 

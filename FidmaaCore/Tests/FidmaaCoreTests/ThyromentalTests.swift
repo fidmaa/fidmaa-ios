@@ -157,3 +157,22 @@ private let steps: [Float] = (0..<25).map { Float($0) * 0.005 }
     avg.reset()
     #expect(avg.mean(at: 0) == nil)
 }
+
+@Test func neckSurfaceIsMedianOfTheBandBelowTheChin() {
+    // every 5 mm: recess ~70 mm at 15–25 mm, anterior neck surface ~62–66 mm at 30–60 mm, collar later
+    let off: [Float] = (0..<16).map { Float($0) * 0.005 }
+    let mm: [Float] = [8, 40, 60, 70, 71, 69, 66, 65, 64, 63, 62, 64, 66, 30, 10, 5]
+    let r = ThyromentalProfile.neckSurface(offsetsMeters: off, values: mm.map { $0 / 1000 })
+    #expect(r != nil)
+    #expect(abs((r?.value ?? 0) - 0.064) < 1e-6)          // median of 66,65,64,63,62,64,66
+    #expect(r?.index == 9)                                // drawn at the middle of the band (45 mm)
+}
+
+@Test func neckSurfaceNeedsEnoughValidSamplesAndPlausibleHeight() {
+    let off: [Float] = (0..<16).map { Float($0) * 0.005 }
+    var holes = [Float](repeating: .nan, count: 16)
+    holes[0] = 0; holes[1] = 0.03
+    #expect(ThyromentalProfile.neckSurface(offsetsMeters: off, values: holes) == nil)
+    let inFront: [Float] = [0, 0.004, 0.006, 0.008, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01]
+    #expect(ThyromentalProfile.neckSurface(offsetsMeters: off, values: inFront) == nil)   // < 20 mm behind the chin
+}

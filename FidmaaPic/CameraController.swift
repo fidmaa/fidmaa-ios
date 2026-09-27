@@ -91,7 +91,7 @@ final class CameraController: NSObject {
             measurementModeLock.withLock { $0 = mode }
             measurement = MeasurementState(maxTeeth: measurement.maxTeeth, maxLips: measurement.maxLips,
                                            steadyThyroid: measurement.steadyThyroid,
-                                           steadyRecess: measurement.steadyRecess)
+                                           steadySurface: measurement.steadySurface)
         }
     }
     var isDepthViewActive = false {
