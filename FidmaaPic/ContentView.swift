@@ -1,3 +1,4 @@
+import AVKit
 import FidmaaCore
 import SwiftUI
 
@@ -49,6 +50,10 @@ struct ContentView: View {
             }
         }
         .onChange(of: page) { _, page in camera.isDepthViewActive = page == .depth }
+        // Volume buttons, Camera Control and Bluetooth shutter remotes (which send "volume up") take a photo.
+        .onCameraCaptureEvent(isEnabled: !showsGallery) { event in
+            if event.phase == .ended { takePhoto() }
+        }
         .sheet(isPresented: $showsGallery) { GalleryView() }
         .onAppear { camera.start() }
         .onChange(of: scenePhase) { _, phase in
@@ -58,6 +63,12 @@ struct ContentView: View {
             default: break
             }
         }
+    }
+
+    private func takePhoto() {
+        // Apple-filtered photo depth is hidden: it arrives quantized in ~13 mm steps.
+        camera.capturePhoto(averagingFrames: averagingFrames,
+                            filteredPhotoDepth: CaptureConfig.defaultPhotoDepthFiltered)
     }
 
     private var controls: some View {
@@ -77,11 +88,7 @@ struct ContentView: View {
 
             Spacer()
 
-            Button {
-                // Apple-filtered photo depth is hidden: it arrives quantized in ~13 mm steps.
-                camera.capturePhoto(averagingFrames: averagingFrames,
-                                    filteredPhotoDepth: CaptureConfig.defaultPhotoDepthFiltered)
-            } label: {
+            Button(action: takePhoto) {
                 ZStack {
                     Circle().stroke(.white, lineWidth: 4).frame(width: 76, height: 76)
                     if camera.isCapturing {

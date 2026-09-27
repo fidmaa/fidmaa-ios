@@ -178,6 +178,7 @@
 		0F1D0A00000000000000000E /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = LB2399QQ94;
 				CURRENT_PROJECT_VERSION = 1;
@@ -205,6 +206,7 @@
 		0F1D0A00000000000000000F /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = LB2399QQ94;
 				CURRENT_PROJECT_VERSION = 1;
