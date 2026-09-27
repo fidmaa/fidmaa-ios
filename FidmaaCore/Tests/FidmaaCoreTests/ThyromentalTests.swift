@@ -29,10 +29,11 @@ import Testing
 private let steps: [Float] = (0..<25).map { Float($0) * 0.005 }
 
 @Test func thyroidFoundAfterRecess() {
-    // chin 0, recess +25 mm at 30 mm, thyroid bump back to +18 mm at 70 mm, then neck recedes again
+    // chin 0, recess at 30 mm, thyroid bump at 55 mm, then the neck recedes again
     let v: [Float] = [0, 0.005, 0.012, 0.018, 0.022, 0.024, 0.025, 0.024, 0.022, 0.020, 0.019,
                       0.018, 0.018, 0.019, 0.020, 0.022, 0.024, 0.026, 0.028, 0.030, 0.031, 0.032, 0.033, 0.034, 0.035]
-    let r = ThyromentalProfile.analyze(offsetsMeters: steps, values: v)
+    // realistic magnitudes (recess ~62 mm behind the chin): scale the shape by 2.5
+    let r = ThyromentalProfile.analyze(offsetsMeters: steps, values: v.map { $0 * 2.5 })
     #expect(r.recess == 6)
     #expect(r.thyroid == 11)
 }
@@ -70,4 +71,50 @@ private let steps: [Float] = (0..<25).map { Float($0) * 0.005 }
     #expect(m.add(60, at: 3.1) == 60)        // older values fell out of the 2 s window
     m.reset()
     #expect(m.add(10, at: 5) == 10)
+}
+
+@Test func faceAxisFollowsMedianLineNotNostrils() {
+    // IMG diag 20260928-000933: median line is vertical at x≈265, from nose bridge to chin
+    let pts: [(x: Double, y: Double)] = [(266, 255), (266, 269), (265, 282), (264, 296), (265, 315), (265, 337),
+                                         (265, 344), (265, 346), (264, 353), (262, 418)]
+    let axis = FaceAxis.fit(pts)
+    #expect(abs(axis.dir.x) < 0.05 && axis.dir.y > 0.99)   // points down, towards the chin
+    #expect(abs(axis.along((x: 262, y: 418)) - (418 - 255)) < 3)
+}
+
+@Test func pogonionIsMostAnteriorRelativeToFaceLine() {
+    // profile along the face axis: (along m, depth m). Nasion at 0 / 0.36, menton at 0.12 / 0.37.
+    // Lower chin bulges 6 mm in front of the nasion–menton line at 0.10 m; the lower lip (0.07) is excluded.
+    let along: [Float] = [0.080, 0.085, 0.090, 0.095, 0.100, 0.105, 0.110, 0.115, 0.120]
+    let depth: [Float] = [0.362, 0.364, 0.363, 0.360, 0.359, 0.361, 0.364, 0.367, 0.370]
+    let i = ChinProfile.pogonion(along: along, depths: depth, nasion: (along: 0, depth: 0.36), menton: (along: 0.12, depth: 0.37))
+    #expect(i == 4)
+}
+
+@Test func pogonionIgnoresHolesAndNeedsForwardPoint() {
+    let along: [Float] = [0.09, 0.10, 0.11]
+    #expect(ChinProfile.pogonion(along: along, depths: [.nan, .nan, .nan], nasion: (along: 0, depth: 0.36),
+                                 menton: (along: 0.12, depth: 0.37)) == nil)
+    // everything behind the line → no prominence
+    #expect(ChinProfile.pogonion(along: along, depths: [0.40, 0.41, 0.42], nasion: (along: 0, depth: 0.36),
+                                 menton: (along: 0.12, depth: 0.37)) == nil)
+}
+
+@Test func jacketCollarIsNotThyroid() {
+    // real profile (diag 20260928-000941, mm every 5 px ≈ 3.8 mm): recess ~62 mm, then the jacket collar
+    // comes forward to ~0 mm (TMHT −2 mm would be nonsense)
+    let mm: [Float] = [14, 28, 57, 61, 62, 59, 57, 53, 47, 37, 35, 33, 26, 18, 13, 13, 11, 7, 6, 3, 0, -2, -1, 0, 2, 3, 2, 0, 2, 4, 4, 3]
+    let off = mm.indices.map { Float($0) * 0.0038 }
+    let r = ThyromentalProfile.analyze(offsetsMeters: off, values: mm.map { $0 / 1000 })
+    #expect(r.thyroid == nil)
+    #expect(r.recess == 4)
+}
+
+@Test func realThyroidProfileAccepted() {
+    // diag 20260928-000933: recess ~70 mm, thyroid bump back to ~61–63 mm, then recedes
+    let mm: [Float] = [8, 11, 20, 25, 37, 60, 68, 69, 69, 69, 70, 70, 68, 66, 66, 62, 61, 56, 54, 49, 43, 41, 37]
+    let off = mm.indices.map { Float($0) * 0.004 }
+    let r = ThyromentalProfile.analyze(offsetsMeters: off, values: mm.map { $0 / 1000 })
+    // this frontal profile keeps coming forward (collar) — no receding after a bump → no thyroid
+    #expect(r.thyroid == nil)
 }

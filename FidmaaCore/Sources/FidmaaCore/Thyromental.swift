@@ -52,6 +52,10 @@ public enum ThyromentalProfile {
     public static let thyroidRise: Float = 0.0015
     public static let backgroundJump: Float = 0.10
     public static let maxHoles = 5
+    /// Plausibility (values are relative to the chin): the thyroid must lie behind the chin by at least
+    /// this much, and protrude from the recess by at most `maxProtrusion` (clothing does more).
+    public static let minHeight: Float = 0.02
+    public static let maxProtrusion: Float = 0.03
 
     public static func analyze(offsetsMeters: [Float], values: [Float]) -> (recess: Int?, thyroid: Int?) {
         precondition(offsetsMeters.count == values.count, "one value per offset")
@@ -84,7 +88,10 @@ public enum ThyromentalProfile {
             }
             if let m = runningMin, v < values[m] { runningMin = i }
             if let m = runningMin, v - values[m] >= thyroidRise {
-                return (recess, m)
+                if let r = recess, values[m] >= minHeight, values[r] - values[m] <= maxProtrusion {
+                    return (recess, m)
+                }
+                return (recess, nil)
             }
         }
         return (recess ?? fallbackRecess, nil)
@@ -110,5 +117,61 @@ public struct RollingMedian: Sendable {
 
     public mutating func reset() {
         samples.removeAll()
+    }
+}
+
+/// Facial midline as a straight axis (principal direction of Vision's median-line points), oriented
+/// from the first point (nose bridge) towards the last (chin).
+public struct FaceAxis: Sendable {
+    public var origin: (x: Double, y: Double)
+    public var dir: (x: Double, y: Double)
+
+    public static func fit(_ points: [(x: Double, y: Double)]) -> FaceAxis {
+        precondition(points.count >= 2, "need at least two points")
+        let n = Double(points.count)
+        let mx = points.map(\.x).reduce(0, +) / n, my = points.map(\.y).reduce(0, +) / n
+        var sxx = 0.0, sxy = 0.0, syy = 0.0
+        for p in points {
+            sxx += (p.x - mx) * (p.x - mx); sxy += (p.x - mx) * (p.y - my); syy += (p.y - my) * (p.y - my)
+        }
+        let angle = 0.5 * atan2(2 * sxy, sxx - syy)   // principal axis
+        var d = (x: cos(angle), y: sin(angle))
+        let first = points[0], last = points[points.count - 1]
+        if (last.x - first.x) * d.x + (last.y - first.y) * d.y < 0 { d = (-d.x, -d.y) }
+        // origin: the first point projected onto the axis
+        let t = (first.x - mx) * d.x + (first.y - my) * d.y
+        return FaceAxis(origin: (mx + t * d.x, my + t * d.y), dir: d)
+    }
+
+    public func along(_ p: (x: Double, y: Double)) -> Double {
+        (p.x - origin.x) * dir.x + (p.y - origin.y) * dir.y
+    }
+
+    public func across(_ p: (x: Double, y: Double)) -> Double {
+        -(p.x - origin.x) * dir.y + (p.y - origin.y) * dir.x
+    }
+
+    public func point(along s: Double, across l: Double) -> (x: Double, y: Double) {
+        (origin.x + dir.x * s - dir.y * l, origin.y + dir.y * s + dir.x * l)
+    }
+}
+
+/// Anterior point of the chin (pogonion) in the face's own frame: the profile point most in front of
+/// the line from the nasion to the menton, so head pitch relative to the camera doesn't matter.
+public enum ChinProfile {
+    /// `along` = distance along the face axis (m), `depths` = camera depth (m) of the midline profile.
+    public static func pogonion(along: [Float], depths: [Float], nasion: (along: Float, depth: Float),
+                                menton: (along: Float, depth: Float)) -> Int? {
+        precondition(along.count == depths.count, "one depth per sample")
+        let span = menton.along - nasion.along
+        guard span > 0 else { return nil }
+        var best: Int?
+        var bestForward: Float = 0
+        for i in along.indices where depths[i].isFinite && depths[i] > 0 {
+            let lineDepth = nasion.depth + (menton.depth - nasion.depth) * (along[i] - nasion.along) / span
+            let forward = lineDepth - depths[i]   // > 0: in front of the face line
+            if forward > bestForward { bestForward = forward; best = i }
+        }
+        return best
     }
 }

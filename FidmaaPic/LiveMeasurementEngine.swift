@@ -3,7 +3,6 @@ import CoreGraphics
 import FidmaaCore
 import os
 import QuartzCore
-import simd
 import Vision
 
 enum MeasurementMode: Equatable {
@@ -215,76 +214,96 @@ final class LiveMeasurementEngine {
         state.current = state.kind == .teeth ? teeth.add(distance) : lips.add(distance)
     }
 
-    /// Thyromental height for a patient sitting upright with the head supported: chin = most prominent
-    /// point on the face midline below the lower lip; thyroid cartilage = first forward bump past the
-    /// submental recess (fallback: the recess). Height along the horizontal measurement direction.
+    /// Thyromental height for a patient sitting upright with the head supported. Everything is located in
+    /// the face's own frame (so head pitch doesn't matter): the axis is Vision's facial median line, the
+    /// menton is its last point, the chin's anterior point (pogonion) is the profile point most in front of
+    /// the nasion–menton line, the thyroid cartilage is the first plausible forward bump past the submental
+    /// recess (fallback: the recess). The height is measured along the horizontal direction.
     private func measureThyromental(_ landmarks: VNFaceLandmarks2D, frame: Frame,
                                     gravity: (x: Double, y: Double, z: Double)?, time: CFTimeInterval,
                                     state: inout MeasurementState) {
-        guard let leftEye = landmarks.leftEye.map({ frame.upright($0) }), !leftEye.isEmpty,
-              let rightEye = landmarks.rightEye.map({ frame.upright($0) }), !rightEye.isEmpty,
-              let noseCrest = landmarks.noseCrest.map({ frame.upright($0) }), !noseCrest.isEmpty,
+        guard let median = landmarks.medianLine.map({ frame.upright($0) }), median.count >= 3,
               let outerLips = landmarks.outerLips.map({ frame.upright($0) }), !outerLips.isEmpty,
               let contour = landmarks.faceContour.map({ frame.upright($0) }), contour.count >= 3 else {
             state.status = String(localized: "Nie widzę twarzy")
             return
         }
-        // Face axis in upright depth-grid pixels: between the eyes → nose tip.
+        // Work in upright depth-grid pixels.
         let size = frame.depthUprightSize
-        func px(_ p: CGPoint) -> SIMD2<Double> { SIMD2(Double(p.x) * size.width, Double(p.y) * size.height) }
-        func centroid(_ pts: [CGPoint]) -> SIMD2<Double> { pts.map(px).reduce(.zero, +) / Double(pts.count) }
-        let eyes = (centroid(leftEye) + centroid(rightEye)) / 2
-        guard let noseTip = noseCrest.map(px).max(by: { simd_distance($0, eyes) < simd_distance($1, eyes) }),
-              simd_distance(noseTip, eyes) > 3 else {
-            state.status = String(localized: "Nie widzę twarzy")
-            return
-        }
-        let dir = simd_normalize(noseTip - eyes)
-        let perp = SIMD2(-dir.y, dir.x)
-        let across = contour.map { simd_dot(px($0) - eyes, perp) }
+        func px(_ p: CGPoint) -> (x: Double, y: Double) { (Double(p.x) * size.width, Double(p.y) * size.height) }
+        let axis = FaceAxis.fit(median.map(px))
+        let across = contour.map { axis.across(px($0)) }
         let faceWidth = (across.max() ?? 0) - (across.min() ?? 0)
         let halfBand = max(2, 0.075 * faceWidth)
-        let lipBottom = outerLips.map { simd_dot(px($0) - eyes, dir) }.max() ?? 0
-        let contourBottom = contour.map { simd_dot(px($0) - eyes, dir) }.max() ?? 0
+        let menton = axis.along(px(median[median.count - 1]))
+        let lipBottom = outerLips.map { axis.along(px($0)) }.max() ?? 0
+        state.outline = median.map(frame.sensor)
+        guard menton > lipBottom else {
+            state.status = String(localized: "Nie widzę brody")
+            return
+        }
 
         let h = gravity.map(MeasurementDirection.horizontal) ?? Point3(x: 0, y: 0, z: 1)
         state.pitchDegrees = gravity.map(MeasurementDirection.pitchDegrees)
         func upright(_ s: Double, _ l: Double) -> CGPoint {
-            let q = eyes + dir * s + perp * l
+            let q = axis.point(along: s, across: l)
             return CGPoint(x: q.x / size.width, y: q.y / size.height)
         }
-        /// Surface position along the measurement direction at axis coordinates (s, l).
-        func surface(_ s: Double, _ l: Double) -> (value: Float, depth: Float)? {
+        func point(_ s: Double, _ l: Double) -> Point3? {
             let u = upright(s, l)
             guard u.x >= 0, u.x < 1, u.y >= 0, u.y < 1 else { return nil }
             let sensor = frame.sensor(u)
             let z = frame.depthValue(sensor)
             guard z.isFinite, z > 0 else { return nil }
             let d = frame.depthPixel(sensor)
-            let p = MeasurementDirection.uprightCamera(fromSensor: frame.intrinsics.unproject(u: d.u, v: d.v, depth: z),
-                                                       rotationDegrees: frame.rotation)
-            return (p.dot(h), z)
+            return MeasurementDirection.uprightCamera(fromSensor: frame.intrinsics.unproject(u: d.u, v: d.v, depth: z),
+                                                      rotationDegrees: frame.rotation)
         }
-        func bandMedian(_ s: Double) -> Float? {
-            var values = stride(from: -halfBand, through: halfBand, by: 1).compactMap { surface(s, $0)?.value }
+        /// Median over the band across the axis of a per-point quantity.
+        func band(_ s: Double, _ f: (Point3) -> Float) -> Float? {
+            var values = stride(from: -halfBand, through: halfBand, by: 1).compactMap { point(s, $0).map(f) }
             guard !values.isEmpty else { return nil }
             values.sort()
             return values[values.count / 2]
         }
 
-        // Chin: most prominent point in the band between the lower lip and just past the face contour.
-        var chin: (s: Double, l: Double, value: Float, depth: Float)?
-        for s in stride(from: lipBottom + 2, through: contourBottom + 0.1 * faceWidth, by: 1) {
-            for l in stride(from: -halfBand, through: halfBand, by: 1) {
-                if let v = surface(s, l), v.value < (chin?.value ?? .infinity) { chin = (s, l, v.value, v.depth) }
-            }
+        guard let nasionDepth = band(0, \.z), let mentonDepth = band(menton, \.z) else {
+            state.status = String(localized: "Brak głębi na brodzie")
+            return
         }
-        state.outline = [upright(0, 0), upright(simd_dot(noseTip - eyes, dir), 0)].map(frame.sensor)
+        let focal = Double(frame.isSideways ? frame.intrinsics.fx : frame.intrinsics.fy)
+        let pixelsPerMeter = focal / Double(mentonDepth)
+        // Pogonion: between a quarter of the way from the lower lip to the menton, and the menton.
+        let chinSamples = Array(stride(from: lipBottom + 0.25 * (menton - lipBottom), through: menton, by: 1))
+        let chinDepths = chinSamples.map { band($0, \.z) ?? .nan }
+        guard let pogIndex = ChinProfile.pogonion(
+            along: chinSamples.map { Float($0 / pixelsPerMeter) }, depths: chinDepths,
+            nasion: (along: 0, depth: nasionDepth), menton: (along: Float(menton / pixelsPerMeter), depth: mentonDepth)),
+              let pogonion = band(chinSamples[pogIndex], { $0.dot(h) }) else {
+            state.status = String(localized: "Brak głębi na brodzie")
+            return
+        }
+        let pogonionS = chinSamples[pogIndex]
+        state.from = frame.sensor(upright(pogonionS, 0))
+
         var diagnostic: [String: Any] = [:]
         let snapshot = snapshotRequested.withLock { requested in
             defer { requested = false }
             return requested
         }
+        defer {
+            if snapshot { Self.writeSnapshot(diagnostic, frame: frame) }
+        }
+
+        // Neck profile along the axis below the menton, relative to the pogonion.
+        let steps = Int(Double(ThyromentalProfile.thyroidMaxOffset) * pixelsPerMeter) + 1
+        var offsets: [Float] = []
+        var values: [Float] = []
+        for k in 0...steps {
+            offsets.append(Float(Double(k) / pixelsPerMeter))
+            values.append(band(menton + Double(k), { $0.dot(h) }).map { $0 - pogonion } ?? .nan)
+        }
+        let result = ThyromentalProfile.analyze(offsetsMeters: offsets, values: values)
         if snapshot {
             func pts(_ r: VNFaceLandmarkRegion2D?) -> [[Double]] {
                 r.map { frame.upright($0).map { [Double($0.x), Double($0.y)] } } ?? []
@@ -293,53 +312,27 @@ final class LiveMeasurementEngine {
                 "rotation": frame.rotation, "depthUprightSize": [size.width, size.height],
                 "intrinsics": [frame.intrinsics.fx, frame.intrinsics.fy, frame.intrinsics.cx, frame.intrinsics.cy],
                 "gravity": gravity.map { [$0.x, $0.y, $0.z] } ?? [], "h": [h.x, h.y, h.z],
-                "eyes": [eyes.x, eyes.y], "noseTip": [noseTip.x, noseTip.y], "dir": [dir.x, dir.y],
-                "faceWidth": faceWidth, "halfBand": halfBand, "lipBottom": lipBottom, "contourBottom": contourBottom,
-                "chin": chin.map { [$0.s, $0.l, Double($0.value), Double($0.depth)] } ?? [],
-                "landmarks": [
-                    "leftEye": pts(landmarks.leftEye), "rightEye": pts(landmarks.rightEye),
-                    "noseCrest": pts(landmarks.noseCrest), "nose": pts(landmarks.nose),
-                    "outerLips": pts(landmarks.outerLips), "innerLips": pts(landmarks.innerLips),
-                    "faceContour": pts(landmarks.faceContour), "medianLine": pts(landmarks.medianLine),
-                ],
+                "axisOrigin": [axis.origin.x, axis.origin.y], "axisDir": [axis.dir.x, axis.dir.y],
+                "faceWidth": faceWidth, "halfBand": halfBand, "lipBottom": lipBottom, "menton": menton,
+                "nasionDepth": nasionDepth, "mentonDepth": mentonDepth, "pogonionS": pogonionS,
+                "profile": ["offsets": offsets.map(Double.init), "values": values.map { $0.isFinite ? Double($0) : -1 },
+                            "recess": result.recess ?? -1, "thyroid": result.thyroid ?? -1],
+                "landmarks": ["medianLine": pts(landmarks.medianLine), "outerLips": pts(landmarks.outerLips),
+                              "innerLips": pts(landmarks.innerLips), "faceContour": pts(landmarks.faceContour),
+                              "noseCrest": pts(landmarks.noseCrest)],
             ]
-        }
-        defer {
-            if snapshot { Self.writeSnapshot(diagnostic, frame: frame) }
-        }
-        guard let chin else {
-            state.status = String(localized: "Brak głębi na brodzie")
-            return
-        }
-        state.from = frame.sensor(upright(chin.s, chin.l))
-
-        // Neck profile along the axis below the chin.
-        let focal = Double(frame.isSideways ? frame.intrinsics.fx : frame.intrinsics.fy)
-        let pixelsPerMeter = focal / Double(chin.depth)
-        let steps = Int(Double(ThyromentalProfile.thyroidMaxOffset) * pixelsPerMeter) + 1
-        var offsets: [Float] = []
-        var values: [Float] = []
-        for k in 0...steps {
-            offsets.append(Float(Double(k) / pixelsPerMeter))
-            values.append(bandMedian(chin.s + Double(k)).map { $0 - chin.value } ?? .nan)
-        }
-        let result = ThyromentalProfile.analyze(offsetsMeters: offsets, values: values)
-        if snapshot {
-            diagnostic["profile"] = ["offsets": offsets.map(Double.init),
-                                     "values": values.map { $0.isFinite ? Double($0) : -1 },
-                                     "recess": result.recess ?? -1, "thyroid": result.thyroid ?? -1]
         }
         guard let index = result.thyroid ?? result.recess else {
             state.status = String(localized: "Nie widzę szyi — odchyl głowę lub opuść telefon")
             return
         }
-        state.to = frame.sensor(upright(chin.s + Double(index), 0))
+        state.to = frame.sensor(upright(menton + Double(index), 0))
         state.kind = result.thyroid != nil ? .thyroid : .recess
         state.current = values[index]
 
         // The definition requires a closed mouth.
         if let inner = landmarks.innerLips.map({ frame.upright($0) }), inner.count >= 4 {
-            let ys = inner.map { simd_dot(px($0) - eyes, dir) }
+            let ys = inner.map { axis.along(px($0)) }
             let opening = Float((ys.max() ?? 0) - (ys.min() ?? 0)) / Float(pixelsPerMeter)
             if opening > Self.lipsOpenThreshold {
                 state.status = String(localized: "Zamknij usta")

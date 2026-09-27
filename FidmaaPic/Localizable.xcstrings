@@ -502,6 +502,16 @@
         }
       }
     },
+    "Nie widzę brody": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chin not found"
+          }
+        }
+      }
+    },
     "Nie widzę szyi — odchyl głowę lub opuść telefon": {
       "localizations": {
         "en": {
