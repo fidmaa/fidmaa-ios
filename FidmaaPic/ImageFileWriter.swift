@@ -33,6 +33,17 @@ enum ImageFileWriter {
                   bitmapInfo: info, type: .tiff, to: url)
     }
 
+    /// Single-channel 32-bit float TIFF from packed values (row-major, no padding).
+    static func writeFloat32TIFF(values: [Float], width: Int, height: Int, to url: URL) throws {
+        precondition(values.count == width * height, "values must be width*height")
+        let info = CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue
+            | CGBitmapInfo.floatComponents.rawValue
+            | CGBitmapInfo.byteOrder32Little.rawValue)
+        let data = values.withUnsafeBytes { Data($0) }
+        try write(data: data, width: width, height: height, bytesPerRow: width * MemoryLayout<Float>.size,
+                  bitsPerComponent: 32, bitmapInfo: info, type: .tiff, to: url)
+    }
+
     /// 8-bit grayscale PNG (mattes: 0 = background, 255 = region).
     static func writeGray8PNG(_ buffer: CVPixelBuffer, to url: URL) throws {
         try write(buffer, expectedFormat: kCVPixelFormatType_OneComponent8, bitsPerComponent: 8,
@@ -53,6 +64,12 @@ enum ImageFileWriter {
         let height = CVPixelBufferGetHeight(buffer)
         let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
         let data = Data(bytes: base, count: bytesPerRow * height)
+        try write(data: data, width: width, height: height, bytesPerRow: bytesPerRow,
+                  bitsPerComponent: bitsPerComponent, bitmapInfo: bitmapInfo, type: type, to: url)
+    }
+
+    private static func write(data: Data, width: Int, height: Int, bytesPerRow: Int, bitsPerComponent: Int,
+                              bitmapInfo: CGBitmapInfo, type: UTType, to url: URL) throws {
         guard let provider = CGDataProvider(data: data as CFData),
               let colorSpace = CGColorSpace(name: CGColorSpace.linearGray),
               let image = CGImage(width: width, height: height,

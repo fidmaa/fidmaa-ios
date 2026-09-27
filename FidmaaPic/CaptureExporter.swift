@@ -57,19 +57,47 @@ enum CaptureExporter {
             let depth = original.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
             let map = depth.depthDataMap
             accuracy = label(depth.depthDataAccuracy)
-            depthInfo = DepthInfo(width: CVPixelBufferGetWidth(map), height: CVPixelBufferGetHeight(map),
-                                  accuracy: accuracy, quality: depth.depthDataQuality == .high ? "high" : "low",
-                                  isFiltered: depth.isDepthDataFiltered,
-                                  originalPixelFormat: FourCC.string(original.depthDataType))
-            attempt("depth.tiff") {
-                try ImageFileWriter.writeFloat32TIFF(map, to: folder.appendingPathComponent("depth.tiff"))
+            var info = DepthInfo(width: CVPixelBufferGetWidth(map), height: CVPixelBufferGetHeight(map),
+                                 accuracy: accuracy, quality: depth.depthDataQuality == .high ? "high" : "low",
+                                 isFiltered: depth.isDepthDataFiltered,
+                                 originalPixelFormat: FourCC.string(original.depthDataType))
+            if var values = PixelBufferAccess.withFloat32(map, {
+                DepthRaw.packed($0, width: $1, height: $2, rowStride: $3)
+            }) {
+                let width = info.width
+                let height = info.height
+                let photoCenter = values.withUnsafeBufferPointer {
+                    DistanceEstimator.medianCenterDepth($0, width: width, height: height, rowStride: width)
+                }
+                let streamCenter = stack.frames.last.flatMap { frame in
+                    frame.values.withUnsafeBufferPointer {
+                        DistanceEstimator.medianCenterDepth($0, width: frame.width, height: frame.height,
+                                                            rowStride: frame.width)
+                    }
+                }
+                info.photoCenterMeters = photoCenter
+                info.streamCenterMeters = streamCenter
+                info.interpretation = DepthInterpretation.choose(photoCenter: photoCenter, streamCenter: streamCenter)
+                switch info.interpretation {
+                case .inverted:
+                    values = DepthInterpretation.inverted(values)
+                    logger.info("Photo depth inverted to match stream (photo \(photoCenter ?? .nan), stream \(streamCenter ?? .nan))")
+                case .unverified:
+                    warnings.append("Nie dało się sprawdzić głębi zdjęcia względem strumienia")
+                case .asLabelled:
+                    break
+                }
+                attempt("depth.tiff") {
+                    try ImageFileWriter.writeFloat32TIFF(values: values, width: width, height: height,
+                                                         to: folder.appendingPathComponent("depth.tiff"))
+                }
+                attempt("depth.f32") {
+                    try DepthRaw.littleEndianData(frames: [values]).write(to: folder.appendingPathComponent("depth.f32"))
+                }
+            } else {
+                warnings.append("depth.f32: \(CaptureExportError.depthNotFloat32.localizedDescription)")
             }
-            attempt("depth.f32") {
-                guard let data = PixelBufferAccess.withFloat32(map, {
-                    DepthRaw.littleEndianData($0, width: $1, height: $2, rowStride: $3)
-                }) else { throw CaptureExportError.depthNotFloat32 }
-                try data.write(to: folder.appendingPathComponent("depth.f32"))
-            }
+            depthInfo = info
             calibration = depth.cameraCalibrationData.map(makeCalibration)
             if calibration == nil { warnings.append("Brak danych kalibracji kamery") }
         } else {
@@ -117,7 +145,8 @@ enum CaptureExporter {
             calibration: calibration,
             mattes: mattes,
             distanceAtCaptureMeters: distance,
-            stack: stackInfo)
+            stack: stackInfo,
+            depthMapCalibration: stack.frames.last?.calibration.map(makeCalibration))
         attempt("calibration.json") {
             try metadata.jsonData().write(to: folder.appendingPathComponent("calibration.json"))
         }
