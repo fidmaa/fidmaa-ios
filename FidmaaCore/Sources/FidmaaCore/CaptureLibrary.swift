@@ -19,4 +19,21 @@ public enum CaptureLibrary {
         if parts.count > 2 { result += " (\(parts[2]))" }
         return result
     }
+
+    public struct DeletionFailure: Sendable {
+        public let folder: URL
+        public let message: String
+    }
+
+    /// Deletes capture folders; continues past failures and returns them.
+    public static func deleteCaptures(_ folders: [URL], fileManager: FileManager = .default) -> [DeletionFailure] {
+        folders.compactMap { folder in
+            do {
+                try fileManager.removeItem(at: folder)
+                return nil
+            } catch {
+                return DeletionFailure(folder: folder, message: error.localizedDescription)
+            }
+        }
+    }
 }

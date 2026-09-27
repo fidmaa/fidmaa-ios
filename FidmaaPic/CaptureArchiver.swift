@@ -14,6 +14,18 @@ enum CaptureArchiver {
         }
     }
 
+    /// Copies each capture's photo.heic to `<tmp>/share-<uuid>/<folder>.heic` (unique names).
+    static func exportPhotos(_ folders: [URL]) throws -> [URL] {
+        let fm = FileManager.default
+        let directory = fm.temporaryDirectory.appendingPathComponent("share-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+        return try folders.map { folder in
+            let destination = directory.appendingPathComponent("\(folder.lastPathComponent).heic")
+            try fm.copyItem(at: folder.appendingPathComponent("photo.heic"), to: destination)
+            return destination
+        }
+    }
+
     /// Removes the temporary directory that holds the given archives.
     static func cleanUp(_ archives: [URL]) throws {
         guard let directory = archives.first?.deletingLastPathComponent() else { return }

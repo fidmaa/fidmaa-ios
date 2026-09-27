@@ -11,6 +11,7 @@ struct GalleryView: View {
     @State private var share: ShareBundle?
     @State private var isPreparing = false
     @State private var errorMessage: String?
+    @State private var confirmsDeletion = false
 
     private static let logger = Logger(subsystem: "com.fidmaa.pic", category: "gallery")
     private let columns = [GridItem(.adaptive(minimum: 110), spacing: 2)]
@@ -44,8 +45,9 @@ struct GalleryView: View {
                     .disabled(captures.isEmpty)
                 }
                 ToolbarItem(placement: .bottomBar) {
-                    Button {
-                        prepareShare()
+                    Menu {
+                        Button("ZIP — wszystkie dane") { prepareShare(.zip) }
+                        Button("HEIC — samo zdjęcie") { prepareShare(.heic) }
                     } label: {
                         if isPreparing {
                             ProgressView()
@@ -55,8 +57,22 @@ struct GalleryView: View {
                     }
                     .disabled(selection.isEmpty || isPreparing)
                 }
+                ToolbarItem(placement: .bottomBar) {
+                    Button(role: .destructive) {
+                        confirmsDeletion = true
+                    } label: {
+                        Label("Usuń (\(selection.count))", systemImage: "trash")
+                    }
+                    .disabled(selection.isEmpty || isPreparing)
+                }
             }
             .task { load() }
+            .confirmationDialog("Usunąć \(selection.count) zdjęć z aplikacji?", isPresented: $confirmsDeletion,
+                                titleVisibility: .visible) {
+                Button("Usuń", role: .destructive) { deleteSelection() }
+            } message: {
+                Text("Pliki z danymi głębi zostaną trwale usunięte. Kopie w aplikacji Zdjęcia zostają.")
+            }
             .sheet(item: $share) { bundle in
                 ActivityView(items: bundle.archives) {
                     share = nil
@@ -87,19 +103,36 @@ struct GalleryView: View {
         if selection.contains(folder) { selection.remove(folder) } else { selection.insert(folder) }
     }
 
-    private func prepareShare() {
+    private enum ShareFormat { case zip, heic }
+
+    private func deleteSelection() {
+        let failures = CaptureLibrary.deleteCaptures(captures.filter(selection.contains))
+        for failure in failures {
+            Self.logger.error("Deleting \(failure.folder.lastPathComponent, privacy: .public) failed: \(failure.message, privacy: .public)")
+        }
+        errorMessage = failures.isEmpty ? nil : "Nie udało się usunąć \(failures.count) zdjęć: \(failures[0].message)"
+        selection = []
+        load()
+    }
+
+    private func prepareShare(_ format: ShareFormat) {
         let folders = captures.filter(selection.contains)
         isPreparing = true
         errorMessage = nil
         Task.detached(priority: .userInitiated) {
-            let result = Result { try CaptureArchiver.zipCaptures(folders) }
+            let result = Result {
+                switch format {
+                case .zip: try CaptureArchiver.zipCaptures(folders)
+                case .heic: try CaptureArchiver.exportPhotos(folders)
+                }
+            }
             await MainActor.run {
                 isPreparing = false
                 switch result {
                 case .success(let archives):
                     share = ShareBundle(archives: archives)
                 case .failure(let error):
-                    Self.logger.error("Zipping captures failed: \(error.localizedDescription, privacy: .public)")
+                    Self.logger.error("Preparing share failed: \(error.localizedDescription, privacy: .public)")
                     errorMessage = "Nie udało się przygotować plików: \(error.localizedDescription)"
                 }
             }
@@ -144,8 +177,10 @@ private struct CaptureTile: View {
                 if isSelected { Rectangle().stroke(.blue, lineWidth: 3) }
             }
             .task(id: folder) {
-                let path = folder.appendingPathComponent("photo.heic").path
-                thumbnail = await UIImage(contentsOfFile: path)?.byPreparingThumbnail(ofSize: CGSize(width: 300, height: 400))
+                let url = folder.appendingPathComponent("photo.heic")
+                thumbnail = await Task.detached(priority: .utility) {
+                    ThumbnailLoader.thumbnail(at: url, maxPixelSize: 400)
+                }.value
             }
     }
 }

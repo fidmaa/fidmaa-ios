@@ -159,7 +159,7 @@ enum CaptureExporter {
             warnings.append("Zdjęcia: \(error.localizedDescription)")
         }
 
-        let thumbnail = UIImage(data: heic)?.preparingThumbnail(of: CGSize(width: 240, height: 320))
+        let thumbnail = ThumbnailLoader.thumbnail(from: heic, maxPixelSize: 320)
         logger.info("Exported \(folder.lastPathComponent, privacy: .public), accuracy \(accuracy.rawValue, privacy: .public)")
         return CaptureResult(folder: folder, accuracy: accuracy, thumbnail: thumbnail,
                              framesUsed: stackInfo?.framesUsed, framesCaptured: stackInfo?.framesCaptured,

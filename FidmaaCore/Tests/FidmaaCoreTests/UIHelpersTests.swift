@@ -53,3 +53,22 @@ import Testing
     #expect(CaptureLibrary.displayName(forFolder: "20260927-203837-2") == "27.09 20:38:37 (2)")
     #expect(CaptureLibrary.displayName(forFolder: "other") == "other")
 }
+
+@Test func deleteCapturesRemovesOnlyGivenFoldersAndReportsFailures() throws {
+    let fm = FileManager.default
+    let base = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer {
+        do { try fm.removeItem(at: base) } catch { Issue.record(error) }
+    }
+    let keep = base.appendingPathComponent("20260927-201819")
+    let drop = base.appendingPathComponent("20260927-203837")
+    for dir in [keep, drop] {
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data([1]).write(to: dir.appendingPathComponent("photo.heic"))
+    }
+    let missing = base.appendingPathComponent("20260101-000000")
+    let failures = CaptureLibrary.deleteCaptures([drop, missing])
+    #expect(!fm.fileExists(atPath: drop.path))
+    #expect(fm.fileExists(atPath: keep.path))
+    #expect(failures.map(\.folder) == [missing])
+}
