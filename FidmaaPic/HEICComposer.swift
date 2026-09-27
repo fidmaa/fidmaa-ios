@@ -60,9 +60,7 @@ enum HEICComposer {
                 ?? CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, kCGImageAuxiliaryDataTypeDepth),
               let dictionary = originalInfo as? [AnyHashable: Any] else { throw HEICComposerError.noDepthInPhoto }
         let original = try AVDepthData(fromDictionaryRepresentation: dictionary)
-        let replaced = try original.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
-            .replacingDepthDataMap(with: pixelBuffer(values, width: width, height: height))
-            .converting(toDepthDataType: kCVPixelFormatType_DisparityFloat16)
+        let replaced = try trueDisparity(from: original, meters: values, width: width, height: height)
         var depthType: NSString?
         guard let depthInfo = replaced.dictionaryRepresentation(forAuxiliaryDataType: &depthType),
               let depthType else { throw HEICComposerError.cannotEncodeDepth }
@@ -75,12 +73,38 @@ enum HEICComposer {
         try verify(written, expected: values, width: width, height: height)
     }
 
-    /// Photo depth with a correct label: `meters` stored as true disparity (1/m), keeping the original's
-    /// calibration and metadata. Used to fix what iOS 26 writes on iPhone 17 (meters labelled disparity).
+    /// Photo depth with a correct label: `meters` stored as true disparity (1/m, Float16), keeping ALL of the
+    /// original's metadata — camera calibration, accuracy, filtering, version. Used to fix what iOS 26 writes
+    /// on iPhone 17 (meters labelled disparity).
+    ///
+    /// Built by swapping only the raw bytes in the original's dictionary representation:
+    /// `AVDepthData.replacingDepthDataMap(with:)` drops the camera calibration and most metadata.
     static func trueDisparity(from original: AVDepthData, meters: [Float], width: Int, height: Int) throws -> AVDepthData {
-        try original.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
-            .replacingDepthDataMap(with: pixelBuffer(meters, width: width, height: height))
-            .converting(toDepthDataType: kCVPixelFormatType_DisparityFloat16)
+        precondition(meters.count == width * height, "meters must be width*height")
+        let base = original.depthDataType == kCVPixelFormatType_DisparityFloat16
+            ? original
+            : original.converting(toDepthDataType: kCVPixelFormatType_DisparityFloat16)  // keeps calibration
+        var auxiliaryType: NSString?
+        guard var dictionary = base.dictionaryRepresentation(forAuxiliaryDataType: &auxiliaryType),
+              let description = dictionary[kCGImageAuxiliaryDataInfoDataDescription as String] as? [String: Any],
+              let w = description["Width"] as? Int, let h = description["Height"] as? Int,
+              let bytesPerRow = description["BytesPerRow"] as? Int,
+              w == width, h == height, bytesPerRow >= width * MemoryLayout<Float16>.size else {
+            throw HEICComposerError.cannotEncodeDepth
+        }
+        var data = Data(count: bytesPerRow * height)
+        data.withUnsafeMutableBytes { raw in
+            for y in 0..<height {
+                for x in 0..<width {
+                    let m = meters[y * width + x]
+                    let disparity: Float16 = m.isFinite && m > 0 ? Float16(1 / m) : .nan
+                    raw.storeBytes(of: disparity, toByteOffset: y * bytesPerRow + x * MemoryLayout<Float16>.size,
+                                   as: Float16.self)
+                }
+            }
+        }
+        dictionary[kCGImageAuxiliaryDataInfoData as String] = data
+        return try AVDepthData(fromDictionaryRepresentation: dictionary)
     }
 
     /// Reads the depth of an encoded HEIC back and checks it against `expected` meters.
@@ -97,8 +121,14 @@ enum HEICComposer {
               let dictionary = info as? [AnyHashable: Any] else {
             throw HEICComposerError.verificationFailed(String(localized: "brak głębi po zapisie"))
         }
-        let depth = try AVDepthData(fromDictionaryRepresentation: dictionary)
-            .converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
+        let written = try AVDepthData(fromDictionaryRepresentation: dictionary)
+        guard written.cameraCalibrationData != nil else {
+            throw HEICComposerError.verificationFailed(String(localized: "brak kalibracji kamery po zapisie"))
+        }
+        guard written.depthDataAccuracy == .absolute else {
+            throw HEICComposerError.verificationFailed(String(localized: "dokładność inna niż absolute po zapisie"))
+        }
+        let depth = written.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
         guard let actual = PixelBufferAccess.withFloat32(depth.depthDataMap, { values, w, h, stride in
             (w == width && h == height) ? DepthRaw.packed(values, width: w, height: h, rowStride: stride) : nil
         }) ?? nil else {
@@ -110,25 +140,5 @@ enum HEICComposer {
                 format: String(localized: "mediana różnicy %.1f mm, %.0f%% pikseli > 5 mm"),
                 comparison.medianAbsDifference * 1000, comparison.fractionOverTolerance * 100))
         }
-    }
-
-    static func pixelBuffer(_ values: [Float], width: Int, height: Int) throws -> CVPixelBuffer {
-        precondition(values.count == width * height, "values must be width*height")
-        var buffer: CVPixelBuffer?
-        guard CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_DepthFloat32, nil, &buffer) == kCVReturnSuccess,
-              let buffer else { throw HEICComposerError.cannotCreatePixelBuffer }
-        guard CVPixelBufferLockBaseAddress(buffer, []) == kCVReturnSuccess else {
-            throw HEICComposerError.cannotCreatePixelBuffer
-        }
-        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
-        guard let base = CVPixelBufferGetBaseAddress(buffer) else { throw HEICComposerError.cannotCreatePixelBuffer }
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
-        values.withUnsafeBytes { raw in
-            for y in 0..<height {
-                memcpy(base + y * bytesPerRow, raw.baseAddress! + y * width * MemoryLayout<Float>.size,
-                       width * MemoryLayout<Float>.size)
-            }
-        }
-        return buffer
     }
 }

@@ -802,6 +802,26 @@
         }
       }
     },
+    "brak kalibracji kamery po zapisie": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no camera calibration after saving"
+          }
+        }
+      }
+    },
+    "dokładność inna niż absolute po zapisie": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "accuracy other than absolute after saving"
+          }
+        }
+      }
+    },
     "mediana różnicy %.1f mm, %.0f%% pikseli > 5 mm": {
       "localizations": {
         "en": {
