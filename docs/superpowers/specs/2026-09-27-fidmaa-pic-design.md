@@ -147,3 +147,50 @@ Na iPhone 17 `intrinsicMatrixReferenceDimensions` = 3024×4032 (pion), a mapa g�
 
 ### Poza zakresem (teraz)
 Rejestracja 3D klatek (ICP) na telefonie — robiona offline w Pythonie z `depth_stack.f32`, po ustaleniu orientacji kalibracji. Podmiana głębi w HEIC na medianę.
+
+---
+
+## Rozszerzenie 2026-09-27 (wieczór): pomiary na żywo — siekacze/usta, bródkowo-gnykowy
+
+### Cel
+Na żywo (bez robienia zdjęcia) mierzyć: (1) maksymalną odległość międzysiecznikową, a gdy zębów nie
+widać — otwarcie ust; (2) wysokość bródkowo-gnykową jako różnicę głębokości (oś Z) między brodą a
+najgłębszym punktem pod brodą. Wynik: maksimum trzymane na ekranie, stuknięcie kasuje.
+
+### Decyzje użytkownika
+- Źródło punktów: **Vision (landmarki twarzy) + prawdziwa głębia TrueDepth** (nie ARKit).
+- Punkt na szyi: **najgłębszy punkt pod brodą** (zagłębienie szyjno-bródkowe), automatycznie.
+- Nawigacja: z kamery przesunięcie w prawo → ekran 1, dalej w prawo → ekran 2; w lewo → głębia (bez zmian).
+
+### Przepływ
+- `AVCaptureVideoDataOutput` (BGRA, `deliversPreviewSizedOutputBuffers`) zsynchronizowany z
+  `AVCaptureDepthDataOutput` przez `AVCaptureDataOutputSynchronizer`; obraz analizowany tylko na
+  ekranach pomiaru, ~15 Hz. Bufor obrazu i mapa głębi w orientacji sensora (ten sam kadr).
+- Vision `VNDetectFaceLandmarksRequest` z orientacją `.right` (EXIF 6). Punkty z układu „pionowego”
+  Vision przeliczane na znormalizowany układ sensora: `xs = yu`, `ys = 1 − xu` (lewy górny róg).
+- Milimetry z kalibracji strumienia głębi (intrinsics przeskalowane do 640×480).
+
+### Ekran 1 — siekacze / usta
+- Wewnętrzny kontur ust (`innerLips`): środek górnej i dolnej krawędzi.
+- Profil pikseli wzdłuż odcinka góra→dół: piksel „zęba” = jasny (luma > 0,55) i mało nasycony
+  (saturacja < 0,35). Górny brzeg siekaczy = koniec pierwszego ciągu zęba (≥ 3 px) w górnych 40%
+  profilu; dolny = początek ostatniego ciągu w dolnych 40%.
+- Oba brzegi → **odległość międzysiecznikowa**; inaczej, gdy otwarcie warg > 8 mm → **otwarcie ust**;
+  inaczej „usta zamknięte”.
+- Odległość w płaszczyźnie twarzy (na medianie głębi okolicy ust).
+- Osobne maksimum dla zębów i dla warg; do maksimum trafia mediana z 3 ostatnich pomiarów (tłumi skoki).
+
+### Ekran 2 — bródkowo-gnykowy
+- Broda: najniższy (w pionie) punkt konturu twarzy (`faceContour`); głębia z okna tuż nad nim.
+- W dół od brody (w pionie), próbki głębi co piksel; szukamy maksimum głębi w 20–80 mm poniżej
+  brody; przerwa przy skoku > 10 cm (tło) albo > 5 kolejnych dziurach.
+- Wynik: Z(szyja) − Z(broda) w mm; maksimum jak wyżej; „nie widzę szyi”, gdy brak punktu.
+
+### UI
+- Jeden podgląd kamery pod stronami; strony przezroczyste: [szyja, usta, kamera, głębia].
+- Nakładka: punkty i odcinek (przez `layerPointConverted(fromCaptureDevicePoint:)` warstwy podglądu),
+  duże „MAKS”, bieżąca wartość, rodzaj pomiaru, status; stuknięcie = reset. Migawka działa wszędzie.
+
+### Ryzyka
+- Kolorystyczne wykrywanie zębów (światło, język) — zawsze rysujemy wykryte brzegi.
+- Szyja z przodu bywa zasłonięta brodą — status „nie widzę szyi” zamiast zgadywania.
